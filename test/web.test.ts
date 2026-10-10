@@ -70,6 +70,10 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     ]);
     expect(page.status).toBe(200);
     expect(page.headers.get("content-type")).toContain("text/html");
+    expect(page.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+    expect(page.headers.get("x-frame-options")).toBe("DENY");
+    expect(page.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(page.headers.get("referrer-policy")).toBe("no-referrer");
     const pageHtml = await page.text();
     expect(pageHtml).toContain("Your Openza tasks, available from the cloud.");
     expect(pageHtml).toContain('href="/">Tasks</a>');
@@ -93,6 +97,7 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(browserCode).toContain("60_000");
     expect(browserCode).toContain("retryRefreshMs=15_000");
     expect(browserCode).toContain("loadTasks({background:true})");
+    expect(browserCode).toContain("await readAllTasks(api)");
     expect(browserCode).toContain("sessionStorage.getItem(workspaceStateKey)");
     expect(browserCode).toContain("sessionStorage.setItem(workspaceStateKey");
     expect(browserCode).toContain('api("/auth/session/rotate"');
@@ -114,6 +119,11 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
 
     expect(styles.status).toBe(200);
     expect(styles.headers.get("content-type")).toContain("text/css");
+    const stylesheet = await styles.text();
+    expect(stylesheet).toContain(".view-nav { display: flex; overflow-x: auto;");
+    expect(stylesheet).toContain(".space-list { display: flex; overflow-x: auto;");
+    expect(stylesheet).toContain(".sidebar-settings { display: inline-flex;");
+    expect(stylesheet).not.toContain(".workspace-brand, .view-nav, .sidebar-section, .sidebar-settings { display: none; }");
   });
 
   it("returns a non-cacheable generic error when D1 is unavailable", async () => {

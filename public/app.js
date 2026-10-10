@@ -1,4 +1,5 @@
 const cacheKey="openza-personal-cloud-last-known",deviceKey="openza-personal-cloud-web-device",sequenceKey="openza-personal-cloud-web-sequence",workspaceStateKey="openza-personal-cloud-workspace-state";
+import { readAllTasks } from "./task-pages.js?v=paging-1";
 const proactiveRefreshMs=45_000,freshnessLimitMs=60_000,retryRefreshMs=15_000,sessionRotationMs=10*60_000;
 const $=selector=>document.querySelector(selector);
 const settingsRoute=location.pathname==="/settings"||location.pathname==="/settings/";
@@ -8,6 +9,7 @@ const recoveryResult=$("#recovery-result"),tasksPanel=$("#tasks-panel"),devicesP
 const taskDialog=$("#task-dialog"),detailsDialog=$("#details-dialog");
 let csrfToken=null,refreshTimer,freshnessTimer,sessionTimer,taskLoadInFlight=false,currentInstanceId,currentPayload={tasks:[],spaces:[],projects:[],labels:[]},currentEditable=false,currentView="inbox",selectedSpaceId=null,selectedTaskId=null;
 const deviceId=localStorage.getItem(deviceKey)||`web_${crypto.randomUUID()}`;localStorage.setItem(deviceKey,deviceId);
+let lastConfirmed=null;
 
 restoreWorkspaceState();configureRoute();consumeSetupFragment();bindEvents();start();
 
@@ -51,8 +53,8 @@ async function revokeDevice(id){if(!confirm("Revoke this desktop immediately?"))
 
 async function loadTasks(options={}){
   if(taskLoadInFlight)return;taskLoadInFlight=true;const background=options.background===true;if(!background){setStatus("loading","Connecting");taskList.setAttribute("aria-busy","true");}
-  try{const payload=await api("/v1/tasks");if(payload.protocolVersion!==1||payload.product!=="tasks"||payload.freshness!=="current"||!Array.isArray(payload.tasks))throw new Error("Personal Cloud returned an incompatible response.");currentInstanceId=payload.instanceId;const savedAt=new Date().toISOString();localStorage.setItem(cacheKey,JSON.stringify({savedAt,payload}));renderWorkspace(payload,"current",savedAt);scheduleTaskTimers(payload,savedAt);}
-  catch(error){clearTaskTimers();if(error.status===401){await signOut();return;}const cached=readCache();if(cached){renderWorkspace(cached.payload,"stale",cached.savedAt);setStatus("loading","Reconnecting");setNotice("Reconnecting to Personal Cloud","Showing your last confirmed tasks read only while Openza retries automatically.");}else renderUnavailable();refreshTimer=setTimeout(()=>loadTasks({background:true}),retryRefreshMs);}
+  try{const payload=await readAllTasks(api);currentInstanceId=payload.instanceId;const savedAt=new Date().toISOString();lastConfirmed={savedAt,payload};try{localStorage.setItem(cacheKey,JSON.stringify(lastConfirmed));}catch{}renderWorkspace(payload,"current",savedAt);scheduleTaskTimers(payload,savedAt);}
+  catch(error){clearTaskTimers();if(error.status===401){await signOut();return;}const cached=lastConfirmed||readCache();if(cached){renderWorkspace(cached.payload,"stale",cached.savedAt);setStatus("loading","Reconnecting");setNotice("Reconnecting to Personal Cloud","Showing your last confirmed tasks read only while Openza retries automatically.");}else renderUnavailable();refreshTimer=setTimeout(()=>loadTasks({background:true}),retryRefreshMs);}
   finally{taskLoadInFlight=false;taskList.setAttribute("aria-busy","false");}
 }
 function scheduleTaskTimers(payload,savedAt){clearTaskTimers();refreshTimer=setTimeout(()=>loadTasks({background:true}),proactiveRefreshMs);freshnessTimer=setTimeout(()=>{renderWorkspace(payload,"stale",savedAt);setStatus("loading","Reconnecting");setNotice("Reconnecting to Personal Cloud","Showing your last confirmed tasks read only while Openza confirms the latest cloud copy.");},freshnessLimitMs);}
@@ -140,7 +142,7 @@ function persistWorkspaceState(){try{sessionStorage.setItem(workspaceStateKey,JS
 function scheduleSessionRotation(){clearTimeout(sessionTimer);if(!csrfToken)return;sessionTimer=setTimeout(renewActiveSession,sessionRotationMs);}
 async function renewActiveSession(){try{await rotateSession();}catch(error){if(error.status===401){await signOut();return;}sessionTimer=setTimeout(renewActiveSession,retryRefreshMs);}}
 async function rotateSession(){const result=await api("/auth/session/rotate",{method:"POST",csrf:true,body:{}});csrfToken=result.csrfToken;scheduleSessionRotation();}
-async function api(path,options={}){const headers={};if(options.body!==undefined)headers["content-type"]="application/json";if(options.csrf){if(!csrfToken)throw new Error("Sign in again to continue.");headers["x-openza-csrf"]=csrfToken;}const response=await fetch(path,{method:options.method||"GET",headers,body:options.body===undefined?undefined:JSON.stringify(options.body),credentials:"same-origin",cache:"no-store"});const result=await response.json().catch(()=>({}));if(!response.ok){const error=new Error(result?.error?.message||"Personal Cloud rejected the request.");error.status=response.status;throw error;}return result;}
+async function api(path,options={}){const headers={};if(options.body!==undefined)headers["content-type"]="application/json";if(options.csrf){if(!csrfToken)throw new Error("Sign in again to continue.");headers["x-openza-csrf"]=csrfToken;}const response=await fetch(path,{method:options.method||"GET",headers,body:options.body===undefined?undefined:JSON.stringify(options.body),credentials:"same-origin",cache:"no-store"});const result=await response.json().catch(()=>({}));if(!response.ok){const error=new Error(result?.error?.message||"Personal Cloud rejected the request.");error.status=response.status;error.code=result?.error?.code;throw error;}return result;}
 function registrationOptions(value){return{challenge:decode(value.challenge),rp:value.rp,user:{...value.user,id:decode(value.user.id)},pubKeyCredParams:value.pubKeyCredParams,timeout:value.timeout,attestation:value.attestation,authenticatorSelection:value.authenticatorSelection};}
 function assertionOptions(value){return{challenge:decode(value.challenge),rpId:value.rpId,allowCredentials:value.allowCredentials.map(item=>({...item,id:decode(item.id)})),userVerification:value.userVerification,timeout:value.timeout};}
 function registrationCredential(value){return{id:value.id,clientDataJSON:encode(value.response.clientDataJSON),attestationObject:encode(value.response.attestationObject)};}

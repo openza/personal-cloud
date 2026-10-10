@@ -134,7 +134,13 @@ button { border: 0; border-radius: 9px; padding: 10px 16px; color: #fff; backgro
   #landing { width: calc(100vw - 36px); margin: 42px auto; }
   .task-workspace { display: block; }
   .task-sidebar { position: static; min-height: auto; max-height: none; padding: 12px; border-right: 0; border-bottom: 1px solid #dfe4ea; }
-  .workspace-brand, .view-nav, .sidebar-section, .sidebar-settings { display: none; }
+  .workspace-brand { display: none; }
+  .view-nav { display: flex; overflow-x: auto; padding: 12px 0; }
+  .view-nav button { flex: 0 0 auto; width: auto; white-space: nowrap; }
+  .sidebar-section { margin-top: 8px; }
+  .space-list { display: flex; overflow-x: auto; gap: 8px; }
+  .space-button { flex: 0 0 auto; width: auto; }
+  .sidebar-settings { display: inline-flex; margin-top: 8px; }
   .add-task-button { margin: 0; }
   .workspace-main { padding: 26px 16px 44px; }
   .workspace-header { display: block; }

@@ -1,3 +1,23 @@
+import { ContractError } from "./protocol.ts";
+
+type TaskCursor = { createdAt: string; id: string; revision: number };
+
+export function parseTaskCursor(value: string | null): TaskCursor | null {
+  if (value === null) return null;
+  try {
+    if (!value || value.length > 512) throw new Error();
+    const cursor = JSON.parse(atob(value));
+    if (!cursor || Object.keys(cursor).sort().join(",") !== "createdAt,id,revision" ||
+        typeof cursor.createdAt !== "string" || cursor.createdAt.length > 40 ||
+        !Number.isFinite(Date.parse(cursor.createdAt)) || typeof cursor.id !== "string" ||
+        !/^[A-Za-z0-9_.:-]{1,128}$/.test(cursor.id) ||
+        !Number.isSafeInteger(cursor.revision) || cursor.revision < 0) throw new Error();
+    return cursor;
+  } catch {
+    throw new ContractError("invalid_request", "The task-list cursor is invalid.");
+  }
+}
+
 export type ReadOnlyTask = {
   id: string;
   title: string;
@@ -34,6 +54,8 @@ export type TaskReadResponse = {
   labels: { id: string; name: string }[];
   tasks: ReadOnlyTask[];
   hasMore: boolean;
+  nextCursor: string | null;
+  readRevision: number;
 };
 
 type TaskRow = {
@@ -68,8 +90,9 @@ export async function readTasks(
   db: D1Database,
   instanceId: string,
   now: () => Date = () => new Date(),
+  cursor: TaskCursor | null = null,
 ): Promise<TaskReadResponse> {
-  const [result, spaces, projects, labels] = await db.batch([
+  const [result, spaces, projects, labels, state] = await db.batch([
     db.prepare(`
     SELECT tasks.id, tasks.title, tasks.space_id, tasks.completion_state,
            tasks.workflow_status, tasks.priority, tasks.created_at, tasks.completed_at,
@@ -91,14 +114,22 @@ export async function readTasks(
     LEFT JOIN source_descriptors ON source_descriptors.task_id=tasks.id
     LEFT JOIN external_commands ON external_commands.task_id=tasks.id
     WHERE tasks.product = 'tasks' AND tasks.deleted_at IS NULL
+      AND (?1 IS NULL OR tasks.created_at > ?1 OR (tasks.created_at = ?1 AND tasks.id > ?2))
     ORDER BY tasks.created_at ASC, tasks.id ASC
     LIMIT 1001
-  `),
+  `).bind(cursor?.createdAt ?? null, cursor?.id ?? null),
     db.prepare("SELECT id,name FROM spaces WHERE deleted_at IS NULL ORDER BY name,id"),
     db.prepare("SELECT id,space_id AS spaceId,name FROM projects WHERE deleted_at IS NULL ORDER BY name,id"),
     db.prepare("SELECT id,name FROM labels WHERE deleted_at IS NULL ORDER BY name,id"),
-  ]) as [D1Result<TaskRow>, D1Result<SpaceRow>, D1Result<ProjectRow>, D1Result<LabelRow>];
+    db.prepare("SELECT next_change_seq AS revision FROM cloud_state WHERE singleton=1"),
+  ]) as [D1Result<TaskRow>, D1Result<SpaceRow>, D1Result<ProjectRow>, D1Result<LabelRow>, D1Result<{ revision: number }>];
+  const revision = state.results[0].revision;
+  if (cursor && cursor.revision !== revision) {
+    throw new ContractError("stale_snapshot", "Tasks changed during paging. Restart the task list.");
+  }
   const taskRows = result.results.slice(0, 1000);
+  const hasMore = result.results.length > taskRows.length;
+  const last = taskRows.at(-1);
 
   return {
     protocolVersion: 1,
@@ -109,7 +140,9 @@ export async function readTasks(
     spaces: spaces.results,
     projects: projects.results,
     labels: labels.results,
-    hasMore: result.results.length > taskRows.length,
+    hasMore,
+    readRevision: revision,
+    nextCursor: hasMore && last ? btoa(JSON.stringify({ createdAt: last.created_at, id: last.id, revision })) : null,
     tasks: taskRows.map((row) => ({
       id: row.id,
       title: row.title,

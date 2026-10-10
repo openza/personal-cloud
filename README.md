@@ -1,15 +1,17 @@
 # Openza Personal Cloud
 
-This repository is the local implementation of the Openza Personal Cloud sync service and Web companion. It runs as one Cloudflare Worker with Static Assets and one D1 database. Tasks is the only product currently supported.
+Openza Personal Cloud is the optional Web companion and sync service for Openza Tasks. It runs as one Cloudflare Worker with Static Assets and one D1 database in each user's own Cloudflare account. Desktop remains local-first and works offline. Tasks is the only product currently supported. This is a technical preview, not a general-availability release.
 
 Every synchronized row belongs to the same Openza `tasks` collection. A task may optionally retain a safe source descriptor after adoption, but Personal Cloud has no provider-task collection and Web has no provider connection or credential access. Provider credentials and provider API calls remain on capable desktop devices.
 
-## Implemented locally
+## Implemented
 
 - Typed, idempotent task mutations with device ordering, entity versions, receipts, ordered change pages, checkpoints, bootstrap/re-bootstrap, tombstones, retention, and compaction gates.
 - Openza task title, workflow status, priority, planning, completion/reopen, deletion, project, Space, label, and parent operations.
 - Safe source-linked tasks, source refresh, pending desktop commands, provider confirmation/rejection, coalescing, stale refresh rejection, and multi-desktop resolution.
 - A Web task experience that uses the same semantic operations and becomes read-only when only stale cached data is available.
+- Task views, add/edit, completion/reopen, deletion, search, sorting, grouping, Spaces, projects, labels and responsive navigation. Native subtask creation is not offered; adopted provider task hierarchies are preserved.
+- Full-list Web loading in bounded pages, with restart on concurrent changes rather than publishing a truncated or mixed task list. Search and filters operate on the completed read.
 - Owner WebAuthn passkey setup and sign-in, secure opaque sessions, rotation, expiry, CSRF/origin enforcement, sign-out, recovery-code rotation, and revocation of lost credentials.
 - One-use desktop pairing grants, capability-scoped short access tokens, immediate device revocation, and re-pairing.
 - A desktop identity client that stores only the refresh credential through Openza's existing OS credential abstraction; pairing grants and short access tokens are not persisted.
@@ -21,6 +23,7 @@ Every synchronized row belongs to the same Openza `tasks` collection. A task may
 npm install
 npm run typecheck
 npm run test:rebootstrap
+npm run test:web
 npm test
 npx wrangler d1 migrations apply DB --local
 npx wrangler dev --local
@@ -41,12 +44,20 @@ To exercise the browser flow manually, place a strong one-time `OWNER_BOOTSTRAP_
 
 ## Deployment boundary
 
-No Cloudflare account resources are created or contacted by these checks. Remote Worker/D1 provisioning, preview deployment, real-account passkey verification, quotas, export/rollback, and removal are the separately authorized technical-preview phase.
+The local checks above do not create or modify Cloudflare account resources. Desktop guided OAuth setup, provisioning, backup, update, disconnect and removal are implemented in the companion Tasks repository. Any live rehearsal or deployment requires separate authorization; source tests are not proof that a deployed cloud runs this version. Check `/health` for artifact/schema versions.
 
 The permanent Desktop provisioning flow consumes a versioned, checksum-manifested artifact. Build one locally without contacting a Cloudflare account:
 
 ```sh
-npm run build:artifact -- 0.1.0-preview.1
+npm run build:artifact -- 0.1.0-preview.7
 ```
 
 The output under `dist/openza-personal-cloud-<version>/` contains the bundled Worker, Web assets, ordered migrations, and `artifact-manifest.json`. Desktop verifies every recorded size and SHA-256 hash before enabling deployment. Release packaging must place this directory at `PersonalCloudArtifact` in the app output and supply the approved public OAuth client ID and exact scope IDs; no client secret is accepted or embedded.
+
+The `_headers` file is checksum-recorded artifact metadata, not a public downloadable asset. Desktop's direct uploader must pass its raw contents as `assets.config._headers` and omit it from the public upload manifest. This keeps browser security headers consistent with Wrangler deployments. Older Desktop uploaders need the matching update before deploying this artifact.
+
+## Privacy and operations
+
+Read [security and privacy](SECURITY.md) and [setup/lifecycle/rollback precautions](docs/lifecycle.md). Task data is access-controlled but not end-to-end encrypted. The browser retains a local cached task copy, including after sign-out. Provider tokens are never uploaded.
+
+Linux is the current development scope. Windows and fresh Snap validation are deferred. Live lifecycle rehearsals, public OAuth availability and release acceptance remain separate gates; building, committing or pushing source does not deploy it.

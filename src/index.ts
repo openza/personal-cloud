@@ -9,7 +9,7 @@ import {
 import { applyTaskCreate } from "./task-create.ts";
 import { pullChanges } from "./change-pull.ts";
 import { acknowledgeCheckpoint } from "./checkpoint-ack.ts";
-import { readTasks } from "./task-read.ts";
+import { parseTaskCursor, readTasks } from "./task-read.ts";
 import { applyTaskOpenzaFieldsUpdate } from "./task-title-update.ts";
 import { applyTaskComplete } from "./task-complete.ts";
 import { applyTaskReopen } from "./task-reopen.ts";
@@ -128,13 +128,14 @@ export default {
         return noStoreJson(await compact(env.DB,body.now));
       }
       if (request.method === "GET" && url.pathname === "/v1/tasks") {
-        if (url.search !== "") {
-          throw new ContractError("invalid_request", "K5 does not accept task-list query parameters.");
-        }
         if (env.TEST_MODE === "true") {
           if (request.headers.get("x-openza-test-session") !== env.K5_TEST_SESSION) throw new ContractError("unauthorized", "A local test session is required.");
         } else await requireOwnerSession(request, env.DB);
-        return noStoreJson(await readTasks(env.DB, env.INSTANCE_ID));
+        const keys = [...url.searchParams.keys()];
+        if (keys.length > 1 || (keys.length === 1 && keys[0] !== "cursor")) {
+          throw new ContractError("invalid_request", "Task lists accept only one cursor parameter.");
+        }
+        return noStoreJson(await readTasks(env.DB, env.INSTANCE_ID, undefined, parseTaskCursor(url.searchParams.get("cursor"))));
       }
       if (request.method === "GET" && url.pathname === "/sync/changes") {
         await authorizeSync(request, env, false, "desktop_sync");
@@ -155,7 +156,7 @@ export default {
       }
       if (request.method !== "POST" || url.pathname !== "/v1/tasks/mutations") {
         if (request.method === "GET" && !url.pathname.startsWith("/v1/") && !url.pathname.startsWith("/sync/")) {
-          return env.ASSETS.fetch(request);
+          return secureResponse(await env.ASSETS.fetch(request));
         }
         throw new ContractError(
           "invalid_request",
@@ -248,5 +249,17 @@ function errorResponse(error: ContractError): Response {
 function noStoreJson(value: unknown, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
   headers.set("cache-control", "no-store");
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("referrer-policy", "no-referrer");
   return Response.json(value, { ...init, headers });
+}
+
+function secureResponse(response: Response): Response {
+  const secured = new Response(response.body, response);
+  secured.headers.set("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+  secured.headers.set("x-frame-options", "DENY");
+  secured.headers.set("x-content-type-options", "nosniff");
+  secured.headers.set("referrer-policy", "no-referrer");
+  secured.headers.set("cache-control", "no-cache");
+  return secured;
 }
