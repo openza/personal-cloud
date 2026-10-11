@@ -58,6 +58,6 @@ The `_headers` file is checksum-recorded artifact metadata, not a public downloa
 
 ## Privacy and operations
 
-Read [security and privacy](SECURITY.md) and [setup/lifecycle/rollback precautions](docs/lifecycle.md). Task data is access-controlled but not end-to-end encrypted. The browser retains a local cached task copy, including after sign-out. Provider tokens are never uploaded.
+Read [security and privacy](SECURITY.md), [setup/lifecycle/rollback precautions](docs/lifecycle.md), and [public release preparation](docs/public-release.md). Task data is access-controlled but not end-to-end encrypted. The browser retains a local cached task copy, including after sign-out. Provider tokens are never uploaded.
 
 Linux is the current development scope. Windows and fresh Snap validation are deferred. Live lifecycle rehearsals, public OAuth availability and release acceptance remain separate gates; building, committing or pushing source does not deploy it.
