@@ -31,27 +31,23 @@ export async function applySourceRefresh(
       current.external_id_hash !== mutation.payload.source.externalIdHash) {
     throw new ContractError("source_identity_conflict", "A source refresh cannot replace the linked source identity.");
   }
-  if (mutation.payload.source.refreshedAt <= current.refreshed_at) {
-    throw new ContractError("stale_snapshot", "The source snapshot is not newer than the stored snapshot.");
-  }
-
   const acceptedAt = now().toISOString();
   const canonicalRequest = canonicalize(rawRequest);
   const canonicalHash = await computeCanonicalHash(rawRequest);
-  const payload = canonicalize(JSON.stringify({ task: { id: mutation.entityId, source: mutation.payload.source } }));
   try {
     await db.batch([
       deviceClaim(db, mutation.deviceId, mutation.deviceSequence, mutation.mutationId),
       db.prepare(`UPDATE source_descriptors SET source_url=?1,source_title=?2,source_description=?3,
       source_project_name=?4,source_priority=?5,source_planned_on=?6,source_planned_at=?7,
       source_deadline_on=?8,source_deadline_at=?9,recurrence_rule=?10,refreshed_at=?11
-      WHERE task_id=?12 AND integration_kind=?13 AND external_id_hash=?14`)
+      WHERE task_id=?12 AND integration_kind=?13 AND external_id_hash=?14 AND refreshed_at<?11
+        AND EXISTS(SELECT 1 FROM tasks WHERE id=?12 AND deleted_at IS NULL)`)
       .bind(mutation.payload.source.sourceUrl, mutation.payload.source.title, mutation.payload.source.description,
         mutation.payload.source.projectName, mutation.payload.source.priority, mutation.payload.source.plannedOn,
         mutation.payload.source.plannedAt, mutation.payload.source.deadlineOn, mutation.payload.source.deadlineAt,
         mutation.payload.source.recurrenceRule, mutation.payload.source.refreshedAt, mutation.entityId,
         mutation.payload.source.integrationKind, mutation.payload.source.externalIdHash),
-    appendChange(db, mutation.mutationId, mutation.entityId, task.entity_version, payload, acceptedAt),
+    appendSourceChange(db, mutation, acceptedAt),
     insertReceipt(db, mutation, canonicalRequest, canonicalHash, acceptedAt),
     advanceCloudState(db, mutation.mutationId),
       advanceDevice(db, mutation.deviceId, mutation.deviceSequence),
@@ -59,11 +55,8 @@ export async function applySourceRefresh(
   } catch (error) {
     const raced = await findReceipt(db, mutation.mutationId);
     if (raced) return duplicateOrReuse(raced, canonicalHash);
-    const latest = await db.prepare("SELECT refreshed_at FROM source_descriptors WHERE task_id=?1")
-      .bind(mutation.entityId).first<{ refreshed_at: string }>();
-    if (latest && mutation.payload.source.refreshedAt <= latest.refreshed_at) {
-      throw new ContractError("stale_snapshot", "The source snapshot is not newer than the stored snapshot.");
-    }
+    const latestTask=await db.prepare("SELECT entity_version FROM tasks WHERE id=?1 AND deleted_at IS NULL").bind(mutation.entityId).first<TaskRow>();
+    if(!latestTask)throw new ContractError("entity_not_found","The Openza task does not exist.");
     throw error;
   }
   return requireAcceptedReceipt(db, mutation.mutationId);
@@ -154,11 +147,21 @@ function deviceClaim(db: D1Database, deviceId: string, sequence: number, mutatio
     .bind(deviceId, sequence, mutationId);
 }
 
-function appendChange(db: D1Database, mutationId: string, entityId: string, entityVersion: number, payload: string, acceptedAt: string) {
+function appendSourceChange(db: D1Database, mutation: SourceRefreshMutation, acceptedAt: string) {
   return db.prepare(`INSERT INTO changes(change_seq,protocol_version,product,mutation_id,operation,entity_kind,
     entity_id,entity_version,payload_json,server_accepted_at)
-    SELECT next_change_seq+1,1,'tasks',?1,'task.updatedOpenzaFields','task',?2,?3,?4,?5 FROM cloud_state WHERE singleton=1`)
-    .bind(mutationId, entityId, entityVersion, payload, acceptedAt);
+    SELECT cs.next_change_seq+1,1,'tasks',?1,'task.updatedOpenzaFields','task',t.id,
+      CASE WHEN s.task_id IS NOT NULL THEN t.entity_version ELSE NULL END,
+      json_object('task',json_object('id',t.id,'source',json_object(
+        'integrationKind',s.integration_kind,'externalIdHash',s.external_id_hash,'sourceUrl',s.source_url,
+        'title',s.source_title,'description',s.source_description,'projectName',s.source_project_name,
+        'priority',s.source_priority,'plannedOn',s.source_planned_on,'plannedAt',s.source_planned_at,
+        'deadlineOn',s.source_deadline_on,'deadlineAt',s.source_deadline_at,'recurrenceRule',s.recurrence_rule,
+        'refreshedAt',s.refreshed_at))),?3
+    FROM cloud_state cs LEFT JOIN tasks t ON t.id=?2 AND t.deleted_at IS NULL
+      LEFT JOIN source_descriptors s ON s.task_id=t.id AND s.integration_kind=?4 AND s.external_id_hash=?5
+    WHERE cs.singleton=1`)
+    .bind(mutation.mutationId,mutation.entityId,acceptedAt,mutation.payload.source.integrationKind,mutation.payload.source.externalIdHash);
 }
 
 function insertReceipt(

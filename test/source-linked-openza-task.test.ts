@@ -4,6 +4,7 @@ import sourceLinkedFixture from "./fixtures/valid-source-linked-task-create.json
 import sourceLinkedCanonical from "./fixtures/valid-source-linked-task-create.canonical.json?raw";
 import sourceLinkedHash from "./fixtures/valid-source-linked-task-create.sha256?raw";
 import { canonicalize, computeCanonicalHash, parseTaskMutation } from "../src/protocol.ts";
+import {applySourceRefresh} from "../src/source-lifecycle.ts";
 
 const taskId="task.source.linked",deviceId="device.source.linked",at="2026-09-13T09:00:00.000Z";
 const source={integrationKind:"todoist",externalIdHash:"a".repeat(64),sourceUrl:"https://todoist.com/showTask?id=opaque",
@@ -93,7 +94,44 @@ it("refreshes safe source facts and confirms a fake desktop provider write",asyn
   const stale=await post({protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:"desktop.provider.b.confirm",
     mutationId:"mutation.source.stale",deviceSequence:1,operation:"source.refreshSnapshot",entityId:localTaskId,
     baseEntityVersion:null,payload:{source},clientCreatedAt:"2026-09-13T09:04:00.000Z"});
-  expect(stale.status).toBe(409);expect((await stale.json() as any).error.code).toBe("stale_snapshot");
+  expect(stale.status).toBe(201);expect((await stale.json() as any).outcome).toBe("accepted");
+});
+
+it("acknowledges stale and equal source snapshots durably without changing current facts or blocking later edits",async()=>{
+  const id=crypto.randomUUID(),localCreate=structuredClone(create);localCreate.instanceId=env.INSTANCE_ID;
+  localCreate.entityId=`task.${id}`;localCreate.payload.task.id=localCreate.entityId;localCreate.deviceId=`device.${id}`;localCreate.mutationId=`create.${id}`;
+  expect((await post(localCreate)).status).toBe(201);
+  const newer={...source,title:"Newest source",refreshedAt:"2026-10-11T06:00:00.000Z"};
+  const refresh={...localCreate,deviceId:`device.other.${id}`,mutationId:`refresh.new.${id}`,operation:"source.refreshSnapshot",baseEntityVersion:null,payload:{source:newer}};
+  expect((await post(refresh)).status).toBe(201);
+  const stale={...refresh,deviceId:localCreate.deviceId,deviceSequence:2,mutationId:`refresh.old.${id}`,payload:{source}};
+  const response=await post(stale),receipt=await response.json() as any;expect(response.status).toBe(201);expect(receipt.entityVersion).toBe(1);
+  const replay=await post(stale);expect(replay.status).toBe(200);expect(await replay.json()).toMatchObject({outcome:"duplicate",changeSeq:receipt.changeSeq});
+  const feed=await env.DB.prepare("SELECT payload_json FROM changes WHERE mutation_id=?1").bind(stale.mutationId).first<{payload_json:string}>();
+  expect(JSON.parse(feed!.payload_json)).toMatchObject({task:{source:newer}});
+  expect((await post({...localCreate,deviceSequence:3,mutationId:`notes.${id}`,operation:"task.updateOpenzaFields",baseEntityVersion:1,payload:{notes:"User intent preserved"}})).status).toBe(201);
+  const equal={...refresh,deviceId:`device.equal.${id}`,mutationId:`refresh.equal.${id}`};expect((await post(equal)).status).toBe(201);
+  expect(await env.DB.prepare("SELECT notes,entity_version FROM tasks WHERE id=?1").bind(localCreate.entityId).first()).toEqual({notes:"User intent preserved",entity_version:2});
+  const mismatch={...equal,deviceId:`device.wrong.${id}`,mutationId:`refresh.wrong.${id}`,payload:{source:{...newer,externalIdHash:"c".repeat(64)}}};
+  expect((await post(mismatch)).status).toBe(409);
+  expect(await env.DB.prepare("SELECT last_sequence FROM device_sequences WHERE device_id=?1").bind(mismatch.deviceId).first()).toBeNull();
+});
+
+it("reads the authoritative source and task version inside the acceptance transaction after a concurrent refresh",async()=>{
+  const id=crypto.randomUUID(),localCreate=structuredClone(create);localCreate.instanceId=env.INSTANCE_ID;localCreate.entityId=`task.${id}`;
+  localCreate.payload.task.id=localCreate.entityId;localCreate.deviceId=`device.${id}`;localCreate.mutationId=`create.${id}`;expect((await post(localCreate)).status).toBe(201);
+  const refreshed={...source,title:"Older queued source",refreshedAt:"2026-10-11T06:00:00.000Z"};
+  const refresh={...localCreate,deviceSequence:2,mutationId:`refresh.raced.${id}`,operation:"source.refreshSnapshot",baseEntityVersion:null,payload:{source:refreshed}};
+  let injected=false;
+  const db=new Proxy(env.DB,{get(target,key){if(key==="prepare")return(sql:string)=>{const statement=target.prepare(sql);if(!sql.includes("SELECT integration_kind,external_id_hash,refreshed_at"))return statement;
+    return new Proxy(statement,{get(stmt,method){if(method==="bind")return(...values:any[])=>{const bound=stmt.bind(...values);return new Proxy(bound,{get(item,call){if(call==="first")return async()=>{const old=await item.first();if(!injected){injected=true;
+      expect((await post({...refresh,deviceId:`device.newer.${id}`,deviceSequence:1,mutationId:`newer.${id}`,payload:{source:{...refreshed,title:"Newer raced source",refreshedAt:"2026-10-11T07:00:00.000Z"}}})).status).toBe(201);
+      expect((await post({...localCreate,deviceId:`device.editor.${id}`,deviceSequence:1,mutationId:`notes.race.${id}`,operation:"task.updateOpenzaFields",baseEntityVersion:1,payload:{notes:"Concurrent user edit"}})).status).toBe(201);
+    }return old;};const value=Reflect.get(item,call);return typeof value==="function"?value.bind(item):value;}});};const value=Reflect.get(stmt,method);return typeof value==="function"?value.bind(stmt):value;}});};const value=Reflect.get(target,key);return typeof value==="function"?value.bind(target):value;}}) as D1Database;
+  const receipt=await applySourceRefresh(db,refresh as any,JSON.stringify(refresh));expect(receipt.entityVersion).toBe(2);
+  const feed=await env.DB.prepare("SELECT payload_json FROM changes WHERE mutation_id=?1").bind(refresh.mutationId).first<{payload_json:string}>();
+  expect(JSON.parse(feed!.payload_json)).toMatchObject({task:{source:{title:"Newer raced source",refreshedAt:"2026-10-11T07:00:00.000Z"}}});
+  expect(await env.DB.prepare("SELECT notes,entity_version FROM tasks WHERE id=?1").bind(localCreate.entityId).first()).toEqual({notes:"Concurrent user edit",entity_version:2});
 });
 
 it("keeps offline intent pending, coalesces complete to reopen, and rejects only the latest command",async()=>{
