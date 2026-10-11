@@ -45,9 +45,12 @@ export async function claimDelivery(db:D1Database, request:DeliveryClaim):Promis
       .bind(request.claimId,request.taskId,request.requestedChangeSeq,request.deviceId,current.command,
         request.integrationKind,request.externalIdHash,now),
   ]);}catch(error){const raced=await findClaim(db,request.claimId);if(raced){requireSame(raced,request);return raced;}
+    if(String(error).includes("provider source ambiguous"))throw new ContractError("source_identity_conflict","Multiple live Openza tasks link to this provider source.");
     if(String(error).includes("provider delivery superseded"))throw new ContractError("command_superseded","The provider request changed before it was claimed.");
-    if(await db.prepare(`SELECT 1 FROM provider_delivery_claims WHERE task_id=?1 AND state IN ('reserved','started')`).bind(request.taskId).first())
-      throw new ContractError("delivery_busy","Another delivery attempt owns this task.");
+    if(await db.prepare(`SELECT 1 FROM provider_delivery_claims WHERE
+      (task_id=?1 OR (integration_kind=?2 AND external_id_hash=?3)) AND state IN ('reserved','started')`)
+      .bind(request.taskId,request.integrationKind,request.externalIdHash).first())
+      throw new ContractError("delivery_busy","Another delivery attempt owns this task or provider source.");
     throw error;}
   return (await findClaim(db,request.claimId))!;
 }
@@ -57,9 +60,11 @@ export async function startDelivery(db:D1Database,claimId:string,deviceId:string
   if(claim.state!=="reserved")return claim;
   try {await db.prepare(`UPDATE provider_delivery_claims SET state='started',started_at=?1 WHERE claim_id=?2 AND state='reserved'`)
     .bind(new Date().toISOString(),claimId).run();}
-  catch(error){if(!String(error).includes("provider delivery superseded"))throw error;
+  catch(error){const ambiguous=String(error).includes("provider source ambiguous");
+    if(!ambiguous&&!String(error).includes("provider delivery superseded"))throw error;
     await db.prepare(`UPDATE provider_delivery_claims SET state='cancelled',resolved_at=?1 WHERE claim_id=?2 AND state='reserved'`)
       .bind(new Date().toISOString(),claimId).run();
+    if(ambiguous)throw new ContractError("source_identity_conflict","Multiple live Openza tasks link to this provider source.");
     throw new ContractError("command_superseded","The provider intent changed before dispatch.");}
   return (await findClaim(db,claimId))!;
 }

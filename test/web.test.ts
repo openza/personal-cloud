@@ -17,7 +17,7 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
       protocolVersion: 1,
       product: "tasks",
       artifactVersion: "0.0.0-test",
-      schemaVersion: 19,
+      schemaVersion: 20,
     });
   });
 

@@ -36,7 +36,8 @@ async function delivery(taskId:string,requestedChangeSeq:number,deviceId:string)
   await env.DB.prepare(`INSERT OR IGNORE INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at)
     VALUES(?1,'Fake provider desktop','desktop',1,1,?2)`).bind(deviceId,at).run();
   const claimId=`claim.${taskId}`;
-  const body={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId,claimId,taskId,requestedChangeSeq,integrationKind:source.integrationKind,externalIdHash:source.externalIdHash};
+  const binding=await env.DB.prepare("SELECT integration_kind,external_id_hash FROM source_descriptors WHERE task_id=?1").bind(taskId).first<{integration_kind:string;external_id_hash:string}>();
+  const body={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId,claimId,taskId,requestedChangeSeq,integrationKind:binding!.integration_kind,externalIdHash:binding!.external_id_hash};
   const headers={"x-openza-test-device":deviceId};
   const claimed=await exports.default.fetch("https://personal-cloud.local/v1/provider/commands/claim",{method:"POST",headers,body:JSON.stringify(body)});expect(claimed.status).toBe(200);
   const started=await exports.default.fetch("https://personal-cloud.local/v1/provider/commands/start",{method:"POST",headers,body:JSON.stringify({protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId,claimId})});expect(started.status).toBe(200);
@@ -80,13 +81,14 @@ it("refreshes safe source facts and confirms a fake desktop provider write",asyn
   const localTaskId=`${taskId}.confirm`,localDeviceId=`${deviceId}.confirm`;
   const localCreate=structuredClone(create);localCreate.instanceId=env.INSTANCE_ID;localCreate.entityId=localTaskId;
   localCreate.payload.task.id=localTaskId;localCreate.deviceId=localDeviceId;localCreate.mutationId="mutation.source.create.confirm";
+  localCreate.payload.source.externalIdHash="d".repeat(64);
   const created=await post(localCreate);expect(created.status).toBe(201);
   const completed=await post({protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:localDeviceId,
     mutationId:"mutation.source.complete.confirm",deviceSequence:2,operation:"task.complete",entityId:localTaskId,
     baseEntityVersion:1,payload:{completedAt:"2026-09-13T09:01:00.000Z"},clientCreatedAt:at});
   const completionReceipt=await completed.json() as any;expect(completed.status).toBe(201);
 
-  const refreshed={...source,title:"Refreshed provider title",description:"Fresh safe description",
+  const refreshed={...localCreate.payload.source,title:"Refreshed provider title",description:"Fresh safe description",
     refreshedAt:"2026-09-13T09:02:00.000Z"};
   const refresh=await post({protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:"desktop.provider.a.confirm",
     mutationId:"mutation.source.refresh",deviceSequence:1,operation:"source.refreshSnapshot",entityId:localTaskId,
@@ -110,7 +112,7 @@ it("refreshes safe source facts and confirms a fake desktop provider write",asyn
 
   const stale=await post({protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:"desktop.provider.b.confirm",
     mutationId:"mutation.source.stale",deviceSequence:1,operation:"source.refreshSnapshot",entityId:localTaskId,
-    baseEntityVersion:null,payload:{source},clientCreatedAt:"2026-09-13T09:04:00.000Z"});
+    baseEntityVersion:null,payload:{source:localCreate.payload.source},clientCreatedAt:"2026-09-13T09:04:00.000Z"});
   expect(stale.status).toBe(201);expect((await stale.json() as any).outcome).toBe("accepted");
 });
 
@@ -187,6 +189,7 @@ it("keeps offline intent pending, coalesces complete to reopen, and rejects only
   const localTaskId=`${taskId}.offline`,localDeviceId=`${deviceId}.offline`;
   const localCreate=structuredClone(create);localCreate.instanceId=env.INSTANCE_ID;localCreate.entityId=localTaskId;
   localCreate.payload.task.id=localTaskId;localCreate.deviceId=localDeviceId;localCreate.mutationId="mutation.source.create.offline";
+  localCreate.payload.source.externalIdHash="e".repeat(64);
   expect((await post(localCreate)).status).toBe(201);
   const complete=await post({protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:localDeviceId,
     mutationId:"mutation.offline.complete",deviceSequence:2,operation:"task.complete",entityId:localTaskId,

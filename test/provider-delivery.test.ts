@@ -8,7 +8,7 @@ import claimFixture from "./fixtures/provider-delivery-claim-request.json?raw";
 import startFixture from "./fixtures/provider-delivery-start-request.json?raw";
 import confirmFixture from "./fixtures/valid-external-command-confirm.json?raw";
 import { applyExternalCommandResult } from "../src/source-lifecycle.ts";
-const at="2026-10-11T06:00:00.000Z",hash="b".repeat(64);
+const at="2026-10-11T06:00:00.000Z";
 it("shares explicit language-neutral claim/start/owned-result fixtures with Desktop",()=>{
   const instance="instance_00000000000000000000000000000001",device="device_00000000000000000000000000000001";
   const claim=parseDeliveryRequest(claimFixture,instance,device,true);
@@ -21,6 +21,7 @@ it("shares explicit language-neutral claim/start/owned-result fixtures with Desk
 
 async function fixture(integrationKind="todoist"){
   const id=crypto.randomUUID().replaceAll("-",""),taskId=`task.${id}`,a=`device.a.${id}`,b=`device.b.${id}`;
+  const hash=id.repeat(2);
   for(const deviceId of[a,b])await env.DB.prepare(`INSERT INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at)
     VALUES(?1,'Fake desktop','desktop',1,1,?2)`).bind(deviceId,at).run();
   const source={integrationKind,externalIdHash:hash,sourceUrl:null,title:"Synthetic provider task",description:null,projectName:null,priority:null,
@@ -34,6 +35,38 @@ async function fixture(integrationKind="todoist"){
   return {id,taskId,a,b,request,envelope};
 }
 function post(body:unknown){return worker.fetch(new Request("https://personal-cloud.local/v1/tasks/mutations",{method:"POST",body:JSON.stringify(body)}),env as unknown as Env);}
+async function alias(f:Awaited<ReturnType<typeof fixture>>){
+  const id=crypto.randomUUID().replaceAll("-",""),taskId=`alias.${id}`,deviceId=`web.alias.${id}`;
+  const create={...f.envelope,entityId:taskId,deviceId,mutationId:`alias.create.${id}`,
+    payload:{...f.envelope.payload,task:{...f.envelope.payload.task,id:taskId}}};
+  expect((await post(create)).status).toBe(201);
+  const response=await post({...create,deviceSequence:2,mutationId:`alias.complete.${id}`,operation:"task.complete",baseEntityVersion:1,payload:{completedAt:at}});
+  expect(response.status).toBe(201);const receipt=await response.json() as any;
+  return{create,request:{...f.request,taskId,claimId:`alias.claim.${id}`,requestedChangeSeq:receipt.changeSeq}};
+}
+it("blocks claims for ambiguous physical sources without merging or consuming either task",async()=>{
+  const f=await fixture(),other=await alias(f);
+  for(const request of[f.request,other.request])await expect(claimDelivery(env.DB,request)).rejects.toMatchObject({code:"source_identity_conflict"});
+  expect((await env.DB.prepare("SELECT count(*) AS n FROM provider_delivery_claims WHERE integration_kind=?1 AND external_id_hash=?2")
+    .bind(f.request.integrationKind,f.request.externalIdHash).first<{n:number}>())!.n).toBe(0);
+  expect((await env.DB.prepare("SELECT count(*) AS n FROM tasks WHERE id IN (?1,?2) AND deleted_at IS NULL").bind(f.taskId,other.request.taskId).first<{n:number}>())!.n).toBe(2);
+});
+it("atomically stops an already reserved delivery if an alias appears before start",async()=>{
+  const f=await fixture();await claimDelivery(env.DB,f.request);const other=await alias(f);
+  await expect(startDelivery(env.DB,f.request.claimId,f.a)).rejects.toMatchObject({code:"source_identity_conflict"});
+  expect((await env.DB.prepare("SELECT state FROM provider_delivery_claims WHERE claim_id=?1").bind(f.request.claimId).first())!.state).toBe("cancelled");
+  expect((await post({...other.create,deviceSequence:3,mutationId:`alias.delete.${f.id}`,operation:"task.delete",baseEntityVersion:2,payload:{deletedAt:at}})).status).toBe(201);
+  const next={...f.request,claimId:`unambiguous.${f.id}`};expect((await claimDelivery(env.DB,next)).state).toBe("reserved");
+  expect((await startDelivery(env.DB,next.claimId,f.a)).state).toBe("started");
+});
+it("keeps a deleted started source locked against replacement aliases until its owned result",async()=>{
+  const f=await fixture();await claimDelivery(env.DB,f.request);await startDelivery(env.DB,f.request.claimId,f.a);
+  const other=await alias(f);
+  expect((await post({...f.envelope,deviceId:`web.delete.${f.id}`,mutationId:`delete.${f.id}`,operation:"task.delete",baseEntityVersion:2,payload:{deletedAt:at}})).status).toBe(201);
+  await expect(claimDelivery(env.DB,other.request)).rejects.toMatchObject({code:"delivery_busy"});
+  const body=result(f);expect((await applyExternalCommandResult(env.DB,body,JSON.stringify(body))).outcome).toBe("accepted");
+  expect((await claimDelivery(env.DB,other.request)).state).toBe("reserved");
+});
 it("preserves Microsoft's existing msToDo source kind through claim, result, and explicit retry",async()=>{
   const f=await fixture("msToDo"),body={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,...f.request};
   const call=(path:string,value:unknown)=>worker.fetch(new Request(`https://personal-cloud.local/v1/provider/commands/${path}`,{method:"POST",headers:{"x-openza-test-device":f.a},body:JSON.stringify(value)}),env as unknown as Env);

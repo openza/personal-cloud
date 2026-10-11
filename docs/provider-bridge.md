@@ -1,6 +1,8 @@
 # Provider delivery contract
 
-Schema 19 adds durable provider-delivery ownership. Provider credentials and raw provider IDs remain on Desktop. Only a bearer-authenticated `provider_bridge` device can claim or start delivery, refresh a safe source snapshot, or submit its result. Owner Web cannot impersonate a bridge.
+Schema 19 adds durable provider-delivery ownership; schema 20 serializes ownership by exact provider source too. Provider credentials and raw provider IDs remain on Desktop. Only a bearer-authenticated `provider_bridge` device can claim or start delivery, refresh a safe source snapshot, or submit its result. Owner Web cannot impersonate a bridge.
+
+If multiple live Openza tasks link to the same integration kind and source hash, claim/start rejects `source_identity_conflict` without provider action. No aliases are merged or discarded. The active-source lock also includes started deliveries of deleted tasks: a replacement task cannot deliver until the old attempt resolves or is explicitly reconciled. A reservation invalidated by new ambiguity is cancelled before dispatch; a started attempt remains uncertain and locked. Migration 20 fails safely if existing active deliveries already violate source uniqueness; reconcile those attempts before a human-approved migration, never discard them.
 
 ## Coordination endpoints
 
