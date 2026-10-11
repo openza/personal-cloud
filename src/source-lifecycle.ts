@@ -8,7 +8,7 @@ import {
 import { duplicateOrReuse, findReceipt, toReceipt, type Receipt } from "./mutation-receipt.ts";
 import { ownedClaim } from "./provider-delivery.ts";
 
-type TaskRow = { entity_version: number };
+type TaskRow = { entity_version: number; deleted_at?: string|null };
 type SourceRow = { integration_kind: string; external_id_hash: string; refreshed_at: string };
 type CommandRow = { command: "complete" | "reopen"; state: string; requested_change_seq: number };
 
@@ -21,14 +21,25 @@ export async function applySourceRefresh(
   const duplicate = await findDuplicate(db, mutation.mutationId, rawRequest);
   if (duplicate) return duplicate;
   await requireNextSequence(db, mutation.deviceId, mutation.deviceSequence);
-  const task = await db.prepare("SELECT entity_version FROM tasks WHERE id=?1 AND deleted_at IS NULL")
+  const task = await db.prepare("SELECT entity_version,deleted_at FROM tasks WHERE id=?1")
     .bind(mutation.entityId).first<TaskRow>();
-  if (!task) throw new ContractError("entity_not_found", "The Openza task does not exist.");
+  if (!task && !await db.prepare("SELECT change_seq FROM changes WHERE entity_id=?1 AND operation='task.deleted' LIMIT 1")
+    .bind(mutation.entityId).first()) throw new ContractError("entity_not_found", "The Openza task does not exist.");
   const current = await db.prepare(`SELECT integration_kind,external_id_hash,refreshed_at
     FROM source_descriptors WHERE task_id=?1`).bind(mutation.entityId).first<SourceRow>();
-  if (!current) throw new ContractError("source_not_found", "The Openza task has no source link.");
-  if (current.integration_kind !== mutation.payload.source.integrationKind ||
-      current.external_id_hash !== mutation.payload.source.externalIdHash) {
+  // A task read may precede compaction. Consult immutable history when the
+  // descriptor disappears, but only for a proven deletion; live native tasks
+  // must not acquire a source link from historical data.
+  const knownDeletion=!current?await db.prepare("SELECT change_seq FROM changes WHERE entity_id=?1 AND operation='task.deleted' LIMIT 1")
+    .bind(mutation.entityId).first():null;
+  const binding=current??(knownDeletion?await db.prepare(`SELECT
+    coalesce(json_extract(payload_json,'$.task.source.integrationKind'),json_extract(payload_json,'$.source.integrationKind')) AS integration_kind,
+    coalesce(json_extract(payload_json,'$.task.source.externalIdHash'),json_extract(payload_json,'$.source.externalIdHash')) AS external_id_hash
+    FROM changes WHERE entity_id=?1 AND coalesce(json_extract(payload_json,'$.task.source.integrationKind'),json_extract(payload_json,'$.source.integrationKind')) IS NOT NULL
+    ORDER BY change_seq DESC LIMIT 1`).bind(mutation.entityId).first<SourceRow>():null);
+  if (!binding) throw new ContractError("source_not_found", "The Openza task has no source link.");
+  if (binding.integration_kind !== mutation.payload.source.integrationKind ||
+      binding.external_id_hash !== mutation.payload.source.externalIdHash) {
     throw new ContractError("source_identity_conflict", "A source refresh cannot replace the linked source identity.");
   }
   const acceptedAt = now().toISOString();
@@ -148,18 +159,30 @@ function deviceClaim(db: D1Database, deviceId: string, sequence: number, mutatio
 }
 
 function appendSourceChange(db: D1Database, mutation: SourceRefreshMutation, acceptedAt: string) {
-  return db.prepare(`INSERT INTO changes(change_seq,protocol_version,product,mutation_id,operation,entity_kind,
+  return db.prepare(`WITH deleted AS (SELECT entity_version,payload_json FROM changes
+      WHERE entity_id=?2 AND operation='task.deleted' ORDER BY change_seq DESC LIMIT 1),
+    historical_source AS (SELECT
+      coalesce(json_extract(payload_json,'$.task.source.integrationKind'),json_extract(payload_json,'$.source.integrationKind')) AS integration_kind,
+      coalesce(json_extract(payload_json,'$.task.source.externalIdHash'),json_extract(payload_json,'$.source.externalIdHash')) AS external_id_hash
+      FROM changes WHERE entity_id=?2 AND coalesce(json_extract(payload_json,'$.task.source.integrationKind'),json_extract(payload_json,'$.source.integrationKind')) IS NOT NULL
+      ORDER BY change_seq DESC LIMIT 1)
+    INSERT INTO changes(change_seq,protocol_version,product,mutation_id,operation,entity_kind,
     entity_id,entity_version,payload_json,server_accepted_at)
-    SELECT cs.next_change_seq+1,1,'tasks',?1,'task.updatedOpenzaFields','task',t.id,
-      CASE WHEN s.task_id IS NOT NULL THEN t.entity_version ELSE NULL END,
-      json_object('task',json_object('id',t.id,'source',json_object(
+    SELECT cs.next_change_seq+1,1,'tasks',?1,
+      CASE WHEN t.id IS NOT NULL AND t.deleted_at IS NULL THEN 'task.updatedOpenzaFields' ELSE 'task.deleted' END,'task',
+      CASE WHEN t.id IS NOT NULL OR d.entity_version IS NOT NULL THEN ?2 ELSE NULL END,
+      CASE WHEN (CASE WHEN t.id IS NULL THEN hs.integration_kind ELSE s.integration_kind END)=?4
+        AND (CASE WHEN t.id IS NULL THEN hs.external_id_hash ELSE s.external_id_hash END)=?5
+        THEN coalesce(t.entity_version,d.entity_version) ELSE NULL END,
+      CASE WHEN t.id IS NOT NULL AND t.deleted_at IS NULL THEN json_object('task',json_object('id',t.id,'source',json_object(
         'integrationKind',s.integration_kind,'externalIdHash',s.external_id_hash,'sourceUrl',s.source_url,
         'title',s.source_title,'description',s.source_description,'projectName',s.source_project_name,
         'priority',s.source_priority,'plannedOn',s.source_planned_on,'plannedAt',s.source_planned_at,
         'deadlineOn',s.source_deadline_on,'deadlineAt',s.source_deadline_at,'recurrenceRule',s.recurrence_rule,
-        'refreshedAt',s.refreshed_at))),?3
-    FROM cloud_state cs LEFT JOIN tasks t ON t.id=?2 AND t.deleted_at IS NULL
-      LEFT JOIN source_descriptors s ON s.task_id=t.id AND s.integration_kind=?4 AND s.external_id_hash=?5
+        'refreshedAt',s.refreshed_at))) ELSE json_object('task',json_object('id',?2,'deletedAt',
+          coalesce(t.deleted_at,json_extract(d.payload_json,'$.task.deletedAt')))) END,?3
+    FROM cloud_state cs LEFT JOIN tasks t ON t.id=?2 LEFT JOIN source_descriptors s ON s.task_id=t.id
+      LEFT JOIN deleted d ON 1=1 LEFT JOIN historical_source hs ON t.id IS NULL
     WHERE cs.singleton=1`)
     .bind(mutation.mutationId,mutation.entityId,acceptedAt,mutation.payload.source.integrationKind,mutation.payload.source.externalIdHash);
 }
