@@ -113,6 +113,18 @@ it("only the owning started attempt can resolve; duplicate results retrieve thei
   expect((await applyExternalCommandResult(env.DB,body,JSON.stringify(body))).outcome).toBe("duplicate");
   expect(await env.DB.prepare("SELECT state FROM provider_delivery_claims WHERE claim_id=?1").bind(f.request.claimId).first()).toEqual({state:"resolved"});
 });
+it("pulls owned results and explicit retry feeds through the actual sync route",async()=>{
+  const f=await fixture();await claimDelivery(env.DB,f.request);await startDelivery(env.DB,f.request.claimId,f.a);
+  const body=result(f,{operation:"externalCommand.reject",payload:{claimId:f.request.claimId,requestedChangeSeq:f.request.requestedChangeSeq,resolvedAt:at,errorCode:"provider_rejected"}});
+  expect((await applyExternalCommandResult(env.DB,body as any,JSON.stringify(body))).outcome).toBe("accepted");
+  const retry=await retryDelivery(env.DB,{...f.request,claimId:`feed.retry.${f.id}`});
+  const response=await worker.fetch(new Request(`https://personal-cloud.local/sync/changes?after=${f.request.requestedChangeSeq}&limit=50`),env as unknown as Env);
+  expect(response.status).toBe(200);const page=await response.json() as any;
+  expect(page.changes.find((change:any)=>change.mutationId===body.mutationId).payload.task.externalCommand)
+    .toEqual({command:"complete",state:"rejected",errorCode:"provider_rejected",requestedChangeSeq:f.request.requestedChangeSeq});
+  expect(page.changes.find((change:any)=>change.changeSeq===retry.requestedChangeSeq).payload.task.externalCommand)
+    .toEqual({command:"complete",state:"pending_desktop",errorCode:null,requestedChangeSeq:retry.requestedChangeSeq});
+});
 it("a late result releases its old attempt without confirming newer intent",async()=>{
   const f=await fixture();await claimDelivery(env.DB,f.request);await startDelivery(env.DB,f.request.claimId,f.a);
   const reopen=await(await post({...f.envelope,mutationId:`reopen.${f.id}`,deviceSequence:3,operation:"task.reopen",baseEntityVersion:2,payload:{reopenedAt:at}})).json() as any;
