@@ -11,8 +11,22 @@ Checked on 11 October 2026 against cloud source `23f15e9`:
 - The cloud Git history passed secret scanning. These results do not certify a future release artifact or constitute deployment acceptance.
 - This repository has no GitHub Actions release/deployment workflow. Desktop consumes the checksum-manifested bundle; publishing source alone does not update an owner's Worker.
 - The cloud feature branch is not merged into `main`. Release integration and final version selection remain pending.
-- Companion Desktop checks confirmed that supplying `PersonalCloudArtifactDirectory` copies the artifact into both build and publish output. The missing prerequisite is staging an approved cloud artifact in a clean release checkout, not adding another copy rule. The current Desktop release workflow validates tags/manual runs and builds a Snap; it does not stage this bundle or publish a non-Snap Desktop release.
-- The existing reviewed Desktop fix snapshot retains 494 passing tests and a successful direct host build. Its working changes are not yet committed. Reusing that unchanged snapshot's evidence is distinct from testing a future release package.
+- Companion Desktop checks confirmed that supplying `PersonalCloudArtifactDirectory` copies the artifact into both build and publish output. A pinned staging helper and maintainer publish helper now build and verify the bundle; Linux CI validation invokes the same path. This is a framework-dependent publish intermediate, not a new public distribution channel or a certified Snap package.
+- The existing reviewed Desktop fix snapshot retains 494 passing tests and a successful direct host build. Reusing that unchanged snapshot's evidence is distinct from testing a future release package.
+- The owner selected `openza.org` as the publisher domain. Purchase is not DNS verification or authorization to promote OAuth.
+
+## Reproducible Desktop handoff
+
+From the companion Tasks checkout:
+
+```sh
+node scripts/personal-cloud/stage-artifact.mjs
+node scripts/personal-cloud/publish-desktop.mjs 1.1.0
+```
+
+The checked-in lock selects source `23f15e915bcd69d6901d4c4be58cc26c476427da`, artifact `0.1.0-preview.7`, and expected manifest SHA-256 `d3df7cca1d6f747334eca0fb17a557251be1d6a2988c876958ac3296165c70b9`. Staging fetches that public revision into ignored operational storage, installs locked dependencies, builds locally and verifies the manifest and all entries. It does not use the publisher's credentials or deploy to Cloudflare.
+
+The local fresh-source staging and Production-profile publish validation passed on 11 October 2026. The existing `1.1.0` version above is a validation example, not a newly approved release version. The output was not launched or installed. See Tasks' `docs/personal-cloud-desktop-publish.md` for exact prerequisites, output paths and maintainer-only boundaries. Hosted CI execution and final public distribution acceptance remain separate checks.
 
 ## Release order
 
