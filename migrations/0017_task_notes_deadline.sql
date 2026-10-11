@@ -1,0 +1,2 @@
+ALTER TABLE tasks ADD COLUMN notes TEXT;
+ALTER TABLE tasks ADD COLUMN deadline_on TEXT;

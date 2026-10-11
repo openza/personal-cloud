@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openza-personal-cloud-k2",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-13",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "vars": {
+    "INSTANCE_ID": "instance_00000000000000000000000000000001",
+    "ARTIFACT_VERSION": "0.0.0-local"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "openza-personal-cloud-k2-local",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
