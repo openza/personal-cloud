@@ -6,4 +6,4 @@ The website source was extracted from Personal Cloud commit `44216e3b59978b11634
 
 Build, preview, and deployment instructions live in that repository's README. Do not add the publisher website back into Personal Cloud or its Desktop deployment artifact. The public website Worker is separate from private user task deployments.
 
-This source move does not change deployed assets, OAuth visibility, the cloud runtime, or any database. Production setup remains paused pending the owner's direction.
+This source move does not change deployed assets, OAuth visibility, the cloud runtime, or any database. Website publication does not authorize public OAuth promotion or an application release.

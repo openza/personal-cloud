@@ -14,6 +14,9 @@ Checked on 11 October 2026 against cloud source `23f15e9`:
 - Companion Desktop checks confirmed that supplying `PersonalCloudArtifactDirectory` copies the artifact into both build and publish output. A pinned staging helper and maintainer publish helper now build and verify the bundle; Linux CI validation invokes the same path. This is a framework-dependent publish intermediate, not a new public distribution channel or a certified Snap package.
 - The existing reviewed Desktop fix snapshot retains 494 passing tests and a successful direct host build. Reusing that unchanged snapshot's evidence is distinct from testing a future release package.
 - The owner selected `openza.org` as the publisher domain. Purchase is not DNS verification or authorization to promote OAuth.
+- The public website now lives in the separate [openza/website](https://github.com/openza/website) repository. The product page, logos, setup guide and privacy guide are deployed at `https://openza.org/`. Cloudflare's dashboard confirms the existing OAuth client domain is Verified and visibility is Private. Public promotion remains explicitly gated.
+- Source access is now public with the owner's explicit approval. Anonymous Git access and the pinned source revision both return HTTP 200. A fresh credential-free staging build passed, with the expected manifest and all 24 entries verified. This removes the previously confirmed private-repository blocker; hosted CI acceptance remains a distinct unperformed check.
+- The existing OAuth client now has the Openza logo and `https://openza.org/privacy/` policy URL, while retaining its original callback, PKCE flow and three required scopes. Visibility remains Private; public promotion still requires separate approval.
 
 ## Reproducible Desktop handoff
 
@@ -24,7 +27,7 @@ node scripts/personal-cloud/stage-artifact.mjs
 node scripts/personal-cloud/publish-desktop.mjs 1.1.0
 ```
 
-The checked-in lock selects source `23f15e915bcd69d6901d4c4be58cc26c476427da`, artifact `0.1.0-preview.7`, and expected manifest SHA-256 `d3df7cca1d6f747334eca0fb17a557251be1d6a2988c876958ac3296165c70b9`. Staging fetches that public revision into ignored operational storage, installs locked dependencies, builds locally and verifies the manifest and all entries. It does not use the publisher's credentials or deploy to Cloudflare.
+The checked-in lock selects source `23f15e915bcd69d6901d4c4be58cc26c476427da`, artifact `0.1.0-preview.7`, and expected manifest SHA-256 `d3df7cca1d6f747334eca0fb17a557251be1d6a2988c876958ac3296165c70b9`. Staging fetches that exact public revision into ignored operational storage, installs locked dependencies, builds locally and verifies the manifest and all entries. It does not require GitHub or Cloudflare credentials and does not deploy.
 
 The local fresh-source staging and Production-profile publish validation passed on 11 October 2026. The existing `1.1.0` version above is a validation example, not a newly approved release version. The output was not launched or installed. See Tasks' `docs/personal-cloud-desktop-publish.md` for exact prerequisites, output paths and maintainer-only boundaries. Hosted CI execution and final public distribution acceptance remain separate checks.
 
