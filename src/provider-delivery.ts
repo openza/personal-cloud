@@ -17,7 +17,7 @@ export function parseDeliveryRequest(raw:string, instanceId:string, actor:string
   identifier(body.claimId);
   if(claim){identifier(body.taskId);if(!Number.isSafeInteger(body.requestedChangeSeq)||(body.requestedChangeSeq as number)<=0)
     throw new ContractError("invalid_request","Invalid requested change sequence.");
-    if(typeof body.integrationKind!=="string"||!/^[a-z][a-z0-9_-]{0,63}$/.test(body.integrationKind)||
+    if(typeof body.integrationKind!=="string"||body.integrationKind.length<1||body.integrationKind.length>64||
       typeof body.externalIdHash!=="string"||!/^[a-f0-9]{64}$/.test(body.externalIdHash))
       throw new ContractError("invalid_request","Invalid safe source binding.");}
   return body as unknown as DeliveryClaim;

@@ -19,21 +19,35 @@ it("shares explicit language-neutral claim/start/owned-result fixtures with Desk
   expect(()=>parseExternalCommandResultMutation(JSON.stringify(unowned),instance)).toThrow();
 });
 
-async function fixture(){
+async function fixture(integrationKind="todoist"){
   const id=crypto.randomUUID().replaceAll("-",""),taskId=`task.${id}`,a=`device.a.${id}`,b=`device.b.${id}`;
   for(const deviceId of[a,b])await env.DB.prepare(`INSERT INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at)
     VALUES(?1,'Fake desktop','desktop',1,1,?2)`).bind(deviceId,at).run();
-  const source={integrationKind:"todoist",externalIdHash:hash,sourceUrl:null,title:"Synthetic provider task",description:null,projectName:null,priority:null,
+  const source={integrationKind,externalIdHash:hash,sourceUrl:null,title:"Synthetic provider task",description:null,projectName:null,priority:null,
     plannedOn:null,plannedAt:null,deadlineOn:null,deadlineAt:null,recurrenceRule:null,refreshedAt:at};
   const envelope={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:a,mutationId:`create.${id}`,deviceSequence:1,
     operation:"task.create",entityId:taskId,baseEntityVersion:null,payload:{task:{id:taskId,spaceId:"space_default",title:"Synthetic",completionState:"open",workflowStatus:"inbox",createdAt:at},source},clientCreatedAt:at};
   expect((await post(envelope)).status).toBe(201);
   const complete={...envelope,mutationId:`complete.${id}`,deviceSequence:2,operation:"task.complete",baseEntityVersion:1,payload:{completedAt:at}};
   const receipt=await(await post(complete)).json() as any;
-  const request={claimId:`claim.${id}`,taskId,deviceId:a,requestedChangeSeq:receipt.changeSeq,integrationKind:"todoist",externalIdHash:hash} as any;
+  const request={claimId:`claim.${id}`,taskId,deviceId:a,requestedChangeSeq:receipt.changeSeq,integrationKind,externalIdHash:hash} as any;
   return {id,taskId,a,b,request,envelope};
 }
 function post(body:unknown){return worker.fetch(new Request("https://personal-cloud.local/v1/tasks/mutations",{method:"POST",body:JSON.stringify(body)}),env as unknown as Env);}
+it("preserves Microsoft's existing msToDo source kind through claim, result, and explicit retry",async()=>{
+  const f=await fixture("msToDo"),body={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,...f.request};
+  const call=(path:string,value:unknown)=>worker.fetch(new Request(`https://personal-cloud.local/v1/provider/commands/${path}`,{method:"POST",headers:{"x-openza-test-device":f.a},body:JSON.stringify(value)}),env as unknown as Env);
+  for(const integrationKind of["", "x".repeat(65)])expect((await call("claim",{...body,integrationKind})).status).toBe(400);
+  expect((await call("claim",{...body,integrationKind:"mstodo"})).status).toBe(409);
+  const claimed=await call("claim",body);expect(claimed.status).toBe(200);expect((await claimed.json() as any).claim.integrationKind).toBe("msToDo");
+  expect((await call("start",{protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:f.a,claimId:f.request.claimId})).status).toBe(200);
+  const rejected=result(f,{operation:"externalCommand.reject",payload:{claimId:f.request.claimId,requestedChangeSeq:f.request.requestedChangeSeq,resolvedAt:at,errorCode:"authentication_required"}});
+  expect((await post(rejected)).status).toBe(201);
+  const {claimId,...retryBody}=body;
+  const retried=await call("retry",{...retryBody,retryId:`retry.ms.${f.id}`});expect(retried.status).toBe(200);
+  const requestedChangeSeq=(await retried.json() as any).requestedChangeSeq;
+  expect((await call("claim",{...body,claimId:`claim.ms.retry.${f.id}`,requestedChangeSeq})).status).toBe(200);
+});
 function result(f:Awaited<ReturnType<typeof fixture>>,extra:Record<string,unknown>={}){return{protocolVersion:1 as const,product:"tasks" as const,instanceId:env.INSTANCE_ID,
   deviceId:f.a,mutationId:`result.${f.id}`,deviceSequence:3,operation:"externalCommand.confirm" as const,entityId:f.taskId,baseEntityVersion:null,
   payload:{claimId:f.request.claimId,requestedChangeSeq:f.request.requestedChangeSeq,resolvedAt:at,errorCode:null},clientCreatedAt:at,...extra};}
