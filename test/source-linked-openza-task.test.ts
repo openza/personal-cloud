@@ -14,6 +14,16 @@ const create={protocolVersion:1,product:"tasks",instanceId:"",deviceId,mutationI
   payload:{task:{id:taskId,spaceId:"space_default",title:"Source title",completionState:"open",workflowStatus:"inbox",createdAt:at},source},clientCreatedAt:at};
 
 async function post(value:unknown){return exports.default.fetch("https://personal-cloud.local/v1/tasks/mutations",{method:"POST",body:JSON.stringify(value)});}
+async function delivery(taskId:string,requestedChangeSeq:number,deviceId:string){
+  await env.DB.prepare(`INSERT OR IGNORE INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at)
+    VALUES(?1,'Fake provider desktop','desktop',1,1,?2)`).bind(deviceId,at).run();
+  const claimId=`claim.${taskId}`;
+  const body={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId,claimId,taskId,requestedChangeSeq,integrationKind:source.integrationKind,externalIdHash:source.externalIdHash};
+  const headers={"x-openza-test-device":deviceId};
+  const claimed=await exports.default.fetch("https://personal-cloud.local/v1/provider/commands/claim",{method:"POST",headers,body:JSON.stringify(body)});expect(claimed.status).toBe(200);
+  const started=await exports.default.fetch("https://personal-cloud.local/v1/provider/commands/start",{method:"POST",headers,body:JSON.stringify({protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId,claimId})});expect(started.status).toBe(200);
+  return claimId;
+}
 
 it("shares a byte-stable source-linked Openza task contract with desktop",async()=>{
   const parsed=parseTaskMutation(sourceLinkedFixture, "instance_00000000000000000000000000000001") as any;
@@ -65,9 +75,10 @@ it("refreshes safe source facts and confirms a fake desktop provider write",asyn
     baseEntityVersion:null,payload:{source:refreshed},clientCreatedAt:"2026-09-13T09:02:00.000Z"});
   expect(refresh.status).toBe(201);
 
+  const claimId=await delivery(localTaskId,completionReceipt.changeSeq,"desktop.provider.a.confirm");
   const confirmMutation={protocolVersion:1 as const,product:"tasks" as const,instanceId:env.INSTANCE_ID,deviceId:"desktop.provider.a.confirm",
     mutationId:"mutation.source.confirm",deviceSequence:2,operation:"externalCommand.confirm",entityId:localTaskId,
-    baseEntityVersion:null,payload:{requestedChangeSeq:completionReceipt.changeSeq,
+    baseEntityVersion:null,payload:{claimId,requestedChangeSeq:completionReceipt.changeSeq,
       resolvedAt:"2026-09-13T09:03:00.000Z",errorCode:null},clientCreatedAt:"2026-09-13T09:03:00.000Z"};
   const confirm=await post(confirmMutation);
   expect(confirm.status).toBe(201);
@@ -104,22 +115,23 @@ it("keeps offline intent pending, coalesces complete to reopen, and rejects only
   read=await (await exports.default.fetch("https://personal-cloud.local/v1/tasks",{headers:{"x-openza-test-session":env.K5_TEST_SESSION}})).json() as any;
   expect(read.tasks.find((item:any)=>item.id===localTaskId).externalCommand).toMatchObject({command:"reopen",state:"pending_desktop"});
 
-  const oldConfirm=await post({protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:"desktop.provider.a.offline",
+  const claimId=await delivery(localTaskId,reopenReceipt.changeSeq,"desktop.provider.b.offline");
+  const oldConfirm=await post({protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:"desktop.provider.b.offline",
     mutationId:"mutation.offline.old-confirm",deviceSequence:1,operation:"externalCommand.confirm",entityId:localTaskId,
-    baseEntityVersion:null,payload:{requestedChangeSeq:completeReceipt.changeSeq,
+    baseEntityVersion:null,payload:{claimId,requestedChangeSeq:completeReceipt.changeSeq,
       resolvedAt:"2026-09-13T09:03:00.000Z",errorCode:null},clientCreatedAt:"2026-09-13T09:03:00.000Z"});
   expect(oldConfirm.status).toBe(409);expect((await oldConfirm.json() as any).error.code).toBe("command_superseded");
 
   const rejected=await post({protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:"desktop.provider.b.offline",
     mutationId:"mutation.offline.reject",deviceSequence:1,operation:"externalCommand.reject",entityId:localTaskId,
-    baseEntityVersion:null,payload:{requestedChangeSeq:reopenReceipt.changeSeq,
+    baseEntityVersion:null,payload:{claimId,requestedChangeSeq:reopenReceipt.changeSeq,
       resolvedAt:"2026-09-13T09:04:00.000Z",errorCode:"retry_exhausted"},clientCreatedAt:"2026-09-13T09:04:00.000Z"});
   expect(rejected.status).toBe(201);
   read=await (await exports.default.fetch("https://personal-cloud.local/v1/tasks",{headers:{"x-openza-test-session":env.K5_TEST_SESSION}})).json() as any;
   expect(read.tasks.find((item:any)=>item.id===localTaskId).externalCommand).toMatchObject({command:"reopen",state:"rejected",errorCode:"retry_exhausted"});
-  const lateConfirm=await post({protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:"desktop.provider.c.offline",
-    mutationId:"mutation.offline.late-confirm",deviceSequence:1,operation:"externalCommand.confirm",entityId:localTaskId,
-    baseEntityVersion:null,payload:{requestedChangeSeq:reopenReceipt.changeSeq,
+  const lateConfirm=await post({protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:"desktop.provider.b.offline",
+    mutationId:"mutation.offline.late-confirm",deviceSequence:2,operation:"externalCommand.confirm",entityId:localTaskId,
+    baseEntityVersion:null,payload:{claimId,requestedChangeSeq:reopenReceipt.changeSeq,
       resolvedAt:"2026-09-13T09:05:00.000Z",errorCode:null},clientCreatedAt:"2026-09-13T09:05:00.000Z"});
   expect(lateConfirm.status).toBe(409);expect((await lateConfirm.json() as any).error.code).toBe("invalid_transition");
 });

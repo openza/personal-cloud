@@ -34,6 +34,7 @@ export async function compact(db:D1Database, now:string) {
       AND NOT EXISTS(SELECT 1 FROM device_sequences d WHERE NOT EXISTS(
         SELECT 1 FROM device_checkpoints cp WHERE cp.device_id=d.device_id AND cp.last_change_seq>=c.change_seq))
       AND NOT EXISTS(SELECT 1 FROM tasks child WHERE child.parent_id=t.entity_id AND child.deleted_at IS NULL)
+      AND NOT EXISTS(SELECT 1 FROM provider_delivery_claims p WHERE p.task_id=t.entity_id AND p.state IN ('reserved','started'))
     ORDER BY t.entity_id LIMIT 100`).bind(now).all<{entity_id:string}>();
   for(const row of eligible.results) {
     await db.batch([

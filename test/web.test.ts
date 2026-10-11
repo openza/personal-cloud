@@ -17,7 +17,7 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
       protocolVersion: 1,
       product: "tasks",
       artifactVersion: "0.0.0-test",
-      schemaVersion: 18,
+      schemaVersion: 19,
     });
   });
 
@@ -84,6 +84,8 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(pageHtml).toContain("Next Actions");
     expect(pageHtml).toContain('id="task-dialog"');
     expect(pageHtml).toContain('id="details-dialog"');
+    expect(pageHtml).toContain('id="delivery-list"');
+    expect(pageHtml).toContain("stop it, revoke its access, and check the external provider");
     expect(pageHtml).not.toContain(">Parent<");
     expect(pageHtml).not.toContain("Test-only local session");
 
@@ -111,6 +113,9 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(browserCode).toContain('location.pathname==="/settings"');
     expect(browserCode).toContain("tasksPanel.hidden=false");
     expect(browserCode).toContain("moveTaskTree");
+    expect(browserCode).toContain("providerDeliveryLabel(task.externalCommand)");
+    expect(browserCode).toContain("providerStateChecked:true");
+    expect(browserCode).toContain("button.disabled=!delivery.deviceRevokedAt");
     expect(browserCode).not.toContain("prompt(");
     expect(browserCode).not.toContain("k5-local-read-only");
     expect(browserCode).not.toContain("x-openza-test-session");

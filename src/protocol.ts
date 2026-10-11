@@ -213,6 +213,7 @@ export type ExternalCommandResultMutation = {
   entityId: string;
   baseEntityVersion: null;
   payload: {
+    claimId: string;
     requestedChangeSeq: number;
     resolvedAt: string;
     errorCode: null | "provider_rejected" | "authentication_required" | "retry_exhausted" | "unsupported";
@@ -337,7 +338,8 @@ export function parseExternalCommandResultMutation(
   const mutation = requireObject(value, "mutation");
   validateDesktopActorEnvelope(mutation, expectedInstanceId, ["externalCommand.confirm", "externalCommand.reject"]);
   const payload = requireObject(mutation.payload, "payload");
-  requireExactKeys(payload, ["requestedChangeSeq", "resolvedAt", "errorCode"]);
+  requireExactKeys(payload, ["claimId", "requestedChangeSeq", "resolvedAt", "errorCode"]);
+  requireIdentifier(payload.claimId, "payload.claimId");
   if (!Number.isSafeInteger(payload.requestedChangeSeq) || (payload.requestedChangeSeq as number) <= 0) {
     fail("invalid_request", "The external command change sequence is invalid.");
   }

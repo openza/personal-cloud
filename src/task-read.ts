@@ -40,7 +40,7 @@ export type ReadOnlyTask = {
     projectName: string | null; priority: number | null; plannedOn: string | null; plannedAt: string | null;
     deadlineOn: string | null; deadlineAt: string | null; recurrenceRule: string | null; refreshedAt: string;
   };
-  externalCommand: null | { command: "complete" | "reopen"; state: "pending_desktop" | "confirmed" | "rejected"; errorCode: string | null };
+  externalCommand: null | { command: "complete" | "reopen"; state: "pending_desktop" | "confirmed" | "rejected"; errorCode: string | null; deliveryState:"reserved"|"started"|null };
 };
 
 export type TaskReadResponse = {
@@ -77,7 +77,7 @@ type TaskRow = {
   source_description: string | null; source_project_name: string | null; source_priority: number | null;
   source_planned_on: string | null; source_planned_at: string | null; source_deadline_on: string | null;
   source_deadline_at: string | null; source_recurrence_rule: string | null; source_refreshed_at: string | null;
-  command: string | null; command_state: string | null; command_error_code: string | null;
+  command: string | null; command_state: string | null; command_error_code: string | null; delivery_state:"reserved"|"started"|null;
   created_at: string;
   entity_version: number;
 };
@@ -108,7 +108,8 @@ export async function readTasks(
            source_descriptors.source_deadline_on, source_descriptors.source_deadline_at,
            source_descriptors.recurrence_rule AS source_recurrence_rule,
            source_descriptors.refreshed_at AS source_refreshed_at,
-           external_commands.command, external_commands.state AS command_state, external_commands.error_code AS command_error_code
+           external_commands.command, external_commands.state AS command_state, external_commands.error_code AS command_error_code,
+           (SELECT state FROM provider_delivery_claims p WHERE p.task_id=tasks.id AND p.state IN ('reserved','started')) AS delivery_state
     FROM tasks
     INNER JOIN spaces ON spaces.id = tasks.space_id AND spaces.deleted_at IS NULL
     LEFT JOIN source_descriptors ON source_descriptors.task_id=tasks.id
@@ -169,6 +170,7 @@ export async function readTasks(
       externalCommand: row.command === null ? null : {
         command: row.command as "complete" | "reopen", state: row.command_state as "pending_desktop" | "confirmed" | "rejected",
         errorCode: row.command_error_code,
+        deliveryState:row.delivery_state,
       },
     })),
   };

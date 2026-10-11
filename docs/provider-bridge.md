@@ -1,0 +1,22 @@
+# Provider delivery contract
+
+Schema 19 adds durable provider-delivery ownership. Provider credentials and raw provider IDs remain on Desktop. Only a bearer-authenticated `provider_bridge` device can claim or start delivery, refresh a safe source snapshot, or submit its result. Owner Web cannot impersonate a bridge.
+
+## Coordination endpoints
+
+These operational requests do not consume the semantic mutation sequence. Every body includes `protocolVersion:1`, `product:"tasks"`, `instanceId`, and the authenticated `deviceId`. No unknown fields are accepted.
+
+- `POST /v1/provider/commands/claim`: additionally `claimId` (client-generated durable identifier), `taskId`, `requestedChangeSeq`, `integrationKind`, `externalIdHash`. A configured Desktop persists its intended claim before requesting it. The server verifies the current pending intent and source binding, then atomically reserves the task. The response contains the same identifiers, `command` (`complete`/`reopen`), source binding, and `state` (`reserved`/`started`/`resolved`/`cancelled`). Repeating the same claim returns its persisted state; reusing an ID for other content is rejected. Another device/attempt receives `delivery_busy`. No automatic lease expiry or takeover exists.
+- `POST /v1/provider/commands/start`: additionally `claimId`. Atomically advances only a current reserved intent to `started`. Superseded reserved claims are cancelled without provider delivery. Started claims remain exclusive even if a newer intent arrives. Desktop MUST persist its own attempt state before the external call; repeated `start` is NOT permission to repeat that call.
+- Existing ordered `externalCommand.confirm`/`reject` mutations additionally require `payload.claimId`; `requestedChangeSeq`, `resolvedAt`, and safe `errorCode` remain required. Only the claiming device can resolve a started delivery. The result releases the claim atomically with its durable receipt. A result for a superseded intent records the old attempt but never confirms/rejects the newer command or changes Openza completion intent.
+- `POST /v1/provider/commands/retry`: explicit Desktop user action after a known rejection, with the same source-bound fields as claim but `retryId` instead of `claimId`. A stable retry ID is persisted before submission. Only the current rejected request with no active delivery may retry; the response `{protocolVersion,product,instanceId,retryId,taskId,requestedChangeSeq}` identifies a new pending command/change sequence. Replays return that exact sequence. Openza completion intent is unchanged. Claim/start delivery follows separately; this endpoint never calls the provider and cannot clear an uncertain started attempt.
+
+Completion/reopen changes already carry their request identity as `changeSeq`. Bootstrap external commands include `requestedChangeSeq`. Desktop durably persists incoming commands and derives their source binding from the safe source descriptor; an unconfigured desktop neither claims nor rejects them.
+
+## Uncertain delivery and recovery
+
+There is no exactly-once transaction spanning D1 and an external provider. Before dispatch Desktop records the attempt locally. On accepted provider success it queues a canonical confirmation; known permanent failure queues rejection. Authentication-required and unsupported outcomes are safe rejections only when no external effect occurred. Timeout/crash/lost response retains the started claim and displays a needs-reconciliation status; it does not blindly repeat a potentially successful recurring-task operation.
+
+Owner Settings lists active deliveries. Manual reconciliation requires stopping the old desktop, revoking its credential, checking the external provider, and explicitly acknowledging both precautions. Only then can `POST /auth/provider-deliveries/reconcile` with `{claimId,deliveryHostStopped:true,providerStateChecked:true}` retire that attempt and permit the current desired intent to be claimed again. This does not assert provider success, alter Openza intent, or automatically retry. The retired attempt cannot later submit confirmation. Claims and outcomes remain auditable.
+
+Desktop retries known non-effect transient failures only through its existing durable provider outbox and within the same claim. Safe source refresh remains the existing `source.refreshSnapshot` semantic mutation and must preserve Openza-owned fields. Revocation, account mismatch and missing local source identity block delivery without uploading credentials or guessing a provider connection.

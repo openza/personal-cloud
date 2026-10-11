@@ -6,6 +6,7 @@ import {
   type SourceRefreshMutation,
 } from "./protocol.ts";
 import { duplicateOrReuse, findReceipt, toReceipt, type Receipt } from "./mutation-receipt.ts";
+import { ownedClaim } from "./provider-delivery.ts";
 
 type TaskRow = { entity_version: number };
 type SourceRow = { integration_kind: string; external_id_hash: string; refreshed_at: string };
@@ -51,7 +52,7 @@ export async function applySourceRefresh(
         mutation.payload.source.recurrenceRule, mutation.payload.source.refreshedAt, mutation.entityId,
         mutation.payload.source.integrationKind, mutation.payload.source.externalIdHash),
     appendChange(db, mutation.mutationId, mutation.entityId, task.entity_version, payload, acceptedAt),
-    insertReceipt(db, mutation, canonicalRequest, canonicalHash, task.entity_version, acceptedAt),
+    insertReceipt(db, mutation, canonicalRequest, canonicalHash, acceptedAt),
     advanceCloudState(db, mutation.mutationId),
       advanceDevice(db, mutation.deviceId, mutation.deviceSequence),
     ]);
@@ -77,46 +78,51 @@ export async function applyExternalCommandResult(
   const duplicate = await findDuplicate(db, mutation.mutationId, rawRequest);
   if (duplicate) return duplicate;
   await requireNextSequence(db, mutation.deviceId, mutation.deviceSequence);
-  const task = await db.prepare("SELECT entity_version FROM tasks WHERE id=?1 AND deleted_at IS NULL")
+  const task = await db.prepare("SELECT entity_version FROM tasks WHERE id=?1")
     .bind(mutation.entityId).first<TaskRow>();
   if (!task) throw new ContractError("entity_not_found", "The Openza task does not exist.");
   const command = await db.prepare(`SELECT command,state,requested_change_seq FROM external_commands WHERE task_id=?1`)
     .bind(mutation.entityId).first<CommandRow>();
   if (!command) throw new ContractError("command_not_found", "The Openza task has no pending external command.");
-  if (command.requested_change_seq !== mutation.payload.requestedChangeSeq) {
-    throw new ContractError("command_superseded", "The external command was superseded by newer Openza intent.");
-  }
-  if (command.state !== "pending_desktop") {
-    throw new ContractError("invalid_transition", "Only a pending external command can be resolved.");
-  }
+  const claim=await ownedClaim(db,mutation.payload.claimId,mutation.deviceId);
+  if(claim.taskId!==mutation.entityId||claim.requestedChangeSeq!==mutation.payload.requestedChangeSeq)
+    throw new ContractError("command_superseded","The result does not match its claimed request.");
+  if(claim.state!=="started")throw new ContractError("invalid_transition","Only a started delivery can be resolved.");
 
   const state = mutation.operation === "externalCommand.confirm" ? "confirmed" : "rejected";
   const acceptedAt = now().toISOString();
   const canonicalRequest = canonicalize(rawRequest);
   const canonicalHash = await computeCanonicalHash(rawRequest);
-  const payload = canonicalize(JSON.stringify({ task: { id: mutation.entityId, externalCommand: {
-    command: command.command, state, errorCode: mutation.payload.errorCode,
-  } } }));
   try {
     await db.batch([
       deviceClaim(db, mutation.deviceId, mutation.deviceSequence, mutation.mutationId),
       db.prepare(`INSERT INTO external_command_resolutions
-        (task_id,requested_change_seq,mutation_id,state,resolved_at,error_code)
-        VALUES(?1,?2,?3,?4,?5,?6)`)
+        (task_id,requested_change_seq,mutation_id,state,resolved_at,error_code,claim_id,resolving_device_id)
+        VALUES(?1,?2,?3,?4,?5,?6,?7,?8)`)
         .bind(mutation.entityId, mutation.payload.requestedChangeSeq, mutation.mutationId, state,
-          mutation.payload.resolvedAt, mutation.payload.errorCode),
+          mutation.payload.resolvedAt, mutation.payload.errorCode,mutation.payload.claimId,mutation.deviceId),
+      db.prepare(`UPDATE provider_delivery_claims SET state='resolved',resolution=?1,resolved_at=?2
+        WHERE claim_id=?3 AND device_id=?4 AND state='started'`)
+        .bind(state,mutation.payload.resolvedAt,mutation.payload.claimId,mutation.deviceId),
       db.prepare(`UPDATE external_commands SET state=?1,updated_at=?2,error_code=?3
       WHERE task_id=?4 AND requested_change_seq=?5 AND state='pending_desktop'`)
       .bind(state, mutation.payload.resolvedAt, mutation.payload.errorCode, mutation.entityId,
         mutation.payload.requestedChangeSeq),
-    appendChange(db, mutation.mutationId, mutation.entityId, task.entity_version, payload, acceptedAt),
-    insertReceipt(db, mutation, canonicalRequest, canonicalHash, task.entity_version, acceptedAt),
+      db.prepare(`INSERT INTO changes(change_seq,protocol_version,product,mutation_id,operation,entity_kind,
+        entity_id,entity_version,payload_json,server_accepted_at)
+        SELECT cs.next_change_seq+1,1,'tasks',?1,'task.updatedOpenzaFields','task',t.id,t.entity_version,
+          json_object('task',json_object('id',t.id,'externalCommand',json_object('command',c.command,
+            'requestedChangeSeq',c.requested_change_seq,'state',c.state,'errorCode',c.error_code))),?3
+        FROM cloud_state cs JOIN tasks t ON t.id=?2 JOIN external_commands c ON c.task_id=t.id WHERE cs.singleton=1`)
+        .bind(mutation.mutationId,mutation.entityId,acceptedAt),
+      insertReceipt(db, mutation, canonicalRequest, canonicalHash, acceptedAt),
     advanceCloudState(db, mutation.mutationId),
       advanceDevice(db, mutation.deviceId, mutation.deviceSequence),
     ]);
   } catch (error) {
     const raced = await findReceipt(db, mutation.mutationId);
     if (raced) return duplicateOrReuse(raced, canonicalHash);
+    if(String(error).includes("provider delivery not owned"))throw new ContractError("invalid_transition","The delivery was already reconciled.");
     const latest = await db.prepare(`SELECT state,requested_change_seq FROM external_commands WHERE task_id=?1`)
       .bind(mutation.entityId).first<{ state: string; requested_change_seq: number }>();
     if (latest?.requested_change_seq !== mutation.payload.requestedChangeSeq) {
@@ -160,13 +166,12 @@ function insertReceipt(
   mutation: SourceRefreshMutation | ExternalCommandResultMutation,
   canonicalRequest: string,
   canonicalHash: string,
-  entityVersion: number,
   acceptedAt: string,
 ) {
   return db.prepare(`INSERT INTO mutation_receipts(mutation_id,protocol_version,product,canonical_request,canonical_hash,
     entity_id,entity_version,change_seq,server_accepted_at)
-    SELECT ?1,1,'tasks',?2,?3,?4,?5,change_seq,?6 FROM changes WHERE mutation_id=?1`)
-    .bind(mutation.mutationId, canonicalRequest, canonicalHash, mutation.entityId, entityVersion, acceptedAt);
+    SELECT ?1,1,'tasks',?2,?3,?4,entity_version,change_seq,?5 FROM changes WHERE mutation_id=?1`)
+    .bind(mutation.mutationId, canonicalRequest, canonicalHash, mutation.entityId, acceptedAt);
 }
 
 function advanceCloudState(db: D1Database, mutationId: string) {

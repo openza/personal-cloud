@@ -40,7 +40,11 @@
       <div id="recovery-result" class="secret-result one-time-secret" role="status" hidden></div>
       <section id="devices-panel" class="cloud-panel management-panel" aria-labelledby="devices-heading" hidden>
         <div class="panel-heading"><div><p class="section-label">Desktop access</p><h2 id="devices-heading">Paired devices</h2></div><button id="create-pairing" type="button">Pair a desktop</button></div>
-        <div id="pairing-result" class="secret-result" hidden></div><div id="device-list" class="device-list"></div><button id="signout" class="secondary-button" type="button">Sign out</button>
+        <div id="pairing-result" class="secret-result" hidden></div><div id="device-list" class="device-list"></div>
+        <h3>Provider delivery</h3><p>Started delivery is not automatically repeated. If a desktop was lost or delivery is uncertain, stop it, revoke its access, and check the external provider before reconciling.</p>
+        <div id="delivery-list" class="device-list" aria-live="polite"></div>
+        <button id="more-deliveries" class="secondary-button" type="button" hidden>More deliveries</button>
+        <button id="signout" class="secondary-button" type="button">Sign out</button>
       </section>
     </main>
 

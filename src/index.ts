@@ -20,6 +20,7 @@ import { applyExternalCommandResult, applySourceRefresh } from "./source-lifecyc
 import { authStatus, beginOwnerBootstrap, beginSignIn, finishOwnerBootstrap, finishSignIn, refreshOwnerCsrf, requireOwnerSession, rotateOwnerSession, signOut } from "./auth.ts";
 import { createPairingGrant, issueDeviceAccessToken, listDevices, pairDevice, requireDeviceAccess, revokeCurrentDevice, revokeDevice } from "./device-auth.ts";
 import { beginRecovery, finishRecovery } from "./recovery.ts";
+import { claimDelivery, startDelivery, parseDeliveryRequest, listDeliveries, reconcileDelivery,parseRetryRequest,retryDelivery } from "./provider-delivery.ts";
 
 export interface Env {
   DB: D1Database;
@@ -48,6 +49,7 @@ const statusByCode: Record<string, number> = {
   command_not_found: 404,
   source_identity_conflict: 409,
   command_superseded: 409,
+  delivery_busy: 409,
   stale_snapshot: 409,
   unauthorized: 401,
   already_initialized: 409,
@@ -65,7 +67,7 @@ export default {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/health") {
         if (url.search !== "") throw new ContractError("invalid_request", "Health does not accept query parameters.");
-        return noStoreJson({ status: "ok", protocolVersion: 1, product: "tasks", artifactVersion: env.ARTIFACT_VERSION, schemaVersion: 18 });
+        return noStoreJson({ status: "ok", protocolVersion: 1, product: "tasks", artifactVersion: env.ARTIFACT_VERSION, schemaVersion: 19 });
       }
       if (request.method === "GET" && url.pathname === "/auth/status") {
         return noStoreJson(await authStatus(env.DB));
@@ -137,6 +139,24 @@ export default {
         }
         return noStoreJson(await readTasks(env.DB, env.INSTANCE_ID, undefined, parseTaskCursor(url.searchParams.get("cursor"))));
       }
+      if(request.method==="POST"&&["/v1/provider/commands/claim","/v1/provider/commands/start","/v1/provider/commands/retry"].includes(url.pathname)){
+        const raw=await readBoundedBody(request);
+        const actor=env.TEST_MODE==="true"?request.headers.get("x-openza-test-device"):await requireDeviceAccess(request,env.DB,"provider_bridge");
+        if(!actor)throw new ContractError("unauthorized","Provider-device access is required.");
+        if(url.pathname.endsWith("/retry"))return noStoreJson({protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,
+          ...await retryDelivery(env.DB,parseRetryRequest(raw,env.INSTANCE_ID,actor))});
+        const body=parseDeliveryRequest(raw,env.INSTANCE_ID,actor,url.pathname.endsWith("/claim"));
+        const claim=url.pathname.endsWith("/claim")?await claimDelivery(env.DB,body):await startDelivery(env.DB,body.claimId,actor);
+        return noStoreJson({protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,claim});
+      }
+      if(request.method==="GET"&&url.pathname==="/auth/provider-deliveries"){
+        await requireOwnerSession(request,env.DB);
+        if([...url.searchParams.keys()].some(key=>key!=="cursor")||url.searchParams.getAll("cursor").length>1)throw new ContractError("invalid_request","Deliveries accept one cursor only.");
+        return noStoreJson({protocolVersion:1,...await listDeliveries(env.DB,url.searchParams.get("cursor"))});
+      }
+      if(request.method==="POST"&&url.pathname==="/auth/provider-deliveries/reconcile"){
+        await requireOwnerSession(request,env.DB,true);return noStoreJson(await reconcileDelivery(env.DB,await readBoundedBody(request)));
+      }
       if (request.method === "GET" && url.pathname === "/sync/changes") {
         await authorizeSync(request, env, false, "desktop_sync");
         const keys = [...url.searchParams.keys()];
@@ -196,6 +216,7 @@ async function authorizeSync(
   capability: "desktop_sync" | "provider_bridge",
 ): Promise<string | null> {
   if (env.TEST_MODE === "true") return null;
+  if(capability==="provider_bridge")return await requireDeviceAccess(request,env.DB,capability);
   if ((request.headers.get("cookie") ?? "").includes("__Host-openza_session=")) {
     await requireOwnerSession(request, env.DB, stateChanging);
     return null; // Owner browser sessions use their own Web replica identity.
