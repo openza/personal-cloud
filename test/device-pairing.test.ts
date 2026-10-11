@@ -6,6 +6,24 @@ import { requireDeviceAccess } from "../src/device-auth.ts";
 const origin = "https://personal-cloud.local";
 
 describe.sequential("desktop pairing and revocation", () => {
+  it("binds mutation and checkpoint envelopes to the bearer device while allowing the owner browser actor", async () => {
+    const owner=await createOwnerSession();
+    const grant=await (await productionFetch("/auth/pairing-grants",{method:"POST",body:"{}",headers:ownerHeaders(owner)})).json() as any;
+    const paired=await (await productionFetch("/auth/pair",{method:"POST",body:JSON.stringify({grant:grant.grant,deviceName:"Identity test",capabilities:["desktop_sync"]})})).json() as any;
+    const token=await (await productionFetch("/auth/device/token",{method:"POST",body:JSON.stringify({deviceId:paired.deviceId,refreshCredential:paired.refreshCredential})})).json() as any;
+    const body={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:"device.forged",mutationId:"mutation.forged",deviceSequence:1,operation:"task.create",entityId:"task.forged",baseEntityVersion:null,payload:{task:{id:"task.forged",spaceId:"space_default",title:"Identity test",completionState:"open",workflowStatus:"inbox",createdAt:new Date().toISOString()}},clientCreatedAt:new Date().toISOString()};
+    const headers={authorization:`Bearer ${token.accessToken}`};
+    expect((await productionFetch("/v1/tasks/mutations",{method:"POST",headers,body:JSON.stringify(body)})).status).toBe(401);
+    expect(await env.DB.prepare("SELECT 1 FROM tasks WHERE id='task.forged'").first()).toBeNull();
+    const ack={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:"device.forged",checkpoint:0};
+    expect((await productionFetch("/sync/checkpoints",{method:"POST",headers,body:JSON.stringify(ack)})).status).toBe(401);
+    body.deviceId=paired.deviceId;
+    expect((await productionFetch("/v1/tasks/mutations",{method:"POST",headers,body:JSON.stringify(body)})).status).toBe(201);
+    ack.deviceId=paired.deviceId;
+    expect((await productionFetch("/sync/checkpoints",{method:"POST",headers,body:JSON.stringify(ack)})).status).toBe(200);
+    body.deviceId="web.owner";body.mutationId="mutation.owner";body.entityId="task.owner";body.payload.task.id="task.owner";
+    expect((await productionFetch("/v1/tasks/mutations",{method:"POST",headers:ownerHeaders(owner),body:JSON.stringify(body)})).status).toBe(201);
+  });
   it("pairs once, issues scoped short access, and revokes refresh plus access immediately", async () => {
     const owner = await createOwnerSession();
     const grantResponse = await productionFetch("/auth/pairing-grants", {
@@ -39,7 +57,7 @@ describe.sequential("desktop pairing and revocation", () => {
     expect((await productionFetch("/sync/bootstrap")).status).toBe(401);
 
     const listed = await productionFetch("/auth/devices", { headers: { cookie: owner.cookie } });
-    expect((await listed.json() as any).devices[0]).toMatchObject({
+    expect((await listed.json() as any).devices.find((device:any)=>device.deviceId===paired.deviceId)).toMatchObject({
       deviceId: paired.deviceId, displayName: "Ubuntu desktop", canSync: 1, canBridgeProvider: 1, revokedAt: null,
     });
     const revoked = await productionFetch(`/auth/devices/${paired.deviceId}/revoke`, {
@@ -87,9 +105,10 @@ describe.sequential("desktop pairing and revocation", () => {
 async function createOwnerSession() {
   const token = `session-${crypto.randomUUID()}`, csrf = `csrf-${crypto.randomUUID()}`;
   const now = new Date(), expires = new Date(now.valueOf() + 15 * 60_000), absolute = new Date(now.valueOf() + 60 * 60_000);
-  const credentialId = `credential-${crypto.randomUUID()}`;
+  const existing=await env.DB.prepare("SELECT credential_id FROM owner_credentials WHERE revoked_at IS NULL").first<{credential_id:string}>();
+  const credentialId = existing?.credential_id ?? `credential-${crypto.randomUUID()}`;
   await env.DB.batch([
-    env.DB.prepare(`INSERT INTO owner_credentials(credential_id,display_name,public_key_jwk,created_at)
+    env.DB.prepare(`INSERT OR IGNORE INTO owner_credentials(credential_id,display_name,public_key_jwk,created_at)
       VALUES(?1,'Pairing test','{}',?2)`).bind(credentialId, now.toISOString()),
     env.DB.prepare(`INSERT INTO web_sessions(session_hash,credential_id,csrf_hash,created_at,rotated_at,expires_at,absolute_expires_at)
       VALUES(?1,?2,?3,?4,?4,?5,?6)`).bind(await digest(token), credentialId, await digest(csrf),

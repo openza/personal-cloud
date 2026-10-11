@@ -79,10 +79,17 @@ describe.sequential("single-owner passkey identity", () => {
     expect(signout.status).toBe(200);
     expect((await exports.default.fetch(`${origin}/auth/session`, { headers: { cookie: rotatedCookie } })).status).toBe(401);
 
-    const badRecovery = await post("/auth/recovery/begin", {
-      recoveryCode: "openza-invalid-recovery-code-value", displayName: "Recovered passkey",
-    });
-    expect(badRecovery.status).toBe(401);
+    // Anonymous guesses from different IPs cannot consume the owner's secret.
+    for (let attempt=0; attempt<8; attempt++) {
+      const badRecovery = await exports.default.fetch(`${origin}/auth/recovery/begin`, {
+        method:"POST",headers:{"cf-connecting-ip":`192.0.2.${attempt+1}`},body:JSON.stringify({
+          recoveryCode:"openza-invalid-recovery-code-value",displayName:"Recovered passkey",
+        }),
+      });
+      expect(badRecovery.status).toBe(401);
+    }
+    // Previously locked-out installations must also recover without a DB reset.
+    await env.DB.prepare("UPDATE recovery_codes SET attempt_count=8 WHERE consumed_at IS NULL").run();
     const recoveryBegin = await post("/auth/recovery/begin", {
       recoveryCode: initialized.recoveryCode, displayName: "Recovered passkey",
     });
@@ -106,6 +113,24 @@ describe.sequential("single-owner passkey identity", () => {
     expect((await post("/auth/recovery/begin", {
       recoveryCode: initialized.recoveryCode, displayName: "Replay",
     })).status).toBe(401);
+
+    // Execute the credential-reset statements emitted by the administrative
+    // generator, retaining historical recovery rows, then finish fresh setup.
+    const resetAt=new Date().toISOString();
+    for (const table of ["web_sessions","device_refresh_credentials","device_access_tokens","devices","owner_credentials"]) {
+      await env.DB.prepare(`UPDATE ${table} SET revoked_at=?1 WHERE revoked_at IS NULL`).bind(resetAt).run();
+    }
+    await env.DB.prepare("UPDATE recovery_codes SET consumed_at=?1 WHERE consumed_at IS NULL").bind(resetAt).run();
+    await env.DB.prepare("UPDATE owner_bootstrap SET grant_hash=?1,expires_at=?2,consumed_at=NULL WHERE singleton=1")
+      .bind(await digest(grant),new Date(Date.now()+30*60_000).toISOString()).run();
+    const replacementBegin=await post("/auth/bootstrap/begin",{grant,displayName:"Replacement owner"});
+    expect(replacementBegin.status).toBe(200);
+    const replacementOptions=await json(replacementBegin) as any;
+    const replacement=await createRegistrationCredential(replacementOptions.challenge,replacementOptions.rp.id);
+    const replacementFinish=await post("/auth/bootstrap/finish",{grant,displayName:"Replacement owner",challenge:replacementOptions.challenge,credential:replacement.response});
+    expect(replacementFinish.status).toBe(200);
+    expect((await json(replacementFinish) as any).outcome).toBe("initialized");
+    expect(await env.DB.prepare("SELECT MAX(version) AS version FROM recovery_codes").first()).toEqual({version:3});
   });
 });
 

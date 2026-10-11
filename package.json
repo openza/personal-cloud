@@ -5,8 +5,8 @@
   "scripts": {
     "build:artifact": "node scripts/build-artifact.mjs",
     "test": "WRANGLER_LOG_PATH=/tmp/openza-personal-cloud-k2-wrangler.log vitest run",
-    "test:rebootstrap": "NODE_NO_WARNINGS=1 node --test test-node/prepare-owner-rebootstrap.test.mjs",
-    "test:web": "node --test test-node/task-pages.test.mjs",
+    "test:rebootstrap": "NODE_NO_WARNINGS=1 node --experimental-transform-types --test test-node/prepare-owner-rebootstrap.test.mjs test-node/emergency-bootstrap.test.mjs",
+    "test:web": "node --test test-node/task-pages.test.mjs test-node/mutation-queue.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

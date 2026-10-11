@@ -65,7 +65,7 @@ export default {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/health") {
         if (url.search !== "") throw new ContractError("invalid_request", "Health does not accept query parameters.");
-        return noStoreJson({ status: "ok", protocolVersion: 1, product: "tasks", artifactVersion: env.ARTIFACT_VERSION, schemaVersion: 17 });
+        return noStoreJson({ status: "ok", protocolVersion: 1, product: "tasks", artifactVersion: env.ARTIFACT_VERSION, schemaVersion: 18 });
       }
       if (request.method === "GET" && url.pathname === "/auth/status") {
         return noStoreJson(await authStatus(env.DB));
@@ -149,9 +149,10 @@ export default {
         return Response.json(await pullChanges(env.DB, after, limit));
       }
       if (request.method === "POST" && url.pathname === "/sync/checkpoints") {
-        await authorizeSync(request, env, true, "desktop_sync");
+        const actor = await authorizeSync(request, env, true, "desktop_sync");
         const rawRequest = await readBoundedBody(request);
         const acknowledgement = parseCheckpointAcknowledgement(rawRequest, env.INSTANCE_ID);
+        requireActorDevice(actor, acknowledgement.deviceId);
         return Response.json(await acknowledgeCheckpoint(env.DB, acknowledgement));
       }
       if (request.method !== "POST" || url.pathname !== "/v1/tasks/mutations") {
@@ -166,9 +167,10 @@ export default {
 
       const rawRequest = await readBoundedBody(request);
       const mutation = parseTaskMutation(rawRequest, env.INSTANCE_ID);
-      await authorizeSync(request, env, true,
+      const actor = await authorizeSync(request, env, true,
         mutation.operation === "source.refreshSnapshot" || mutation.operation.startsWith("externalCommand.")
           ? "provider_bridge" : "desktop_sync");
+      requireActorDevice(actor, mutation.deviceId);
       let receipt;
       if (mutation.operation === "task.create") receipt = await applyTaskCreate(env.DB, mutation, rawRequest);
       else if (mutation.operation === "task.complete") receipt = await applyTaskComplete(env.DB, mutation, rawRequest);
@@ -192,13 +194,19 @@ async function authorizeSync(
   env: Env,
   stateChanging: boolean,
   capability: "desktop_sync" | "provider_bridge",
-): Promise<void> {
-  if (env.TEST_MODE === "true") return;
+): Promise<string | null> {
+  if (env.TEST_MODE === "true") return null;
   if ((request.headers.get("cookie") ?? "").includes("__Host-openza_session=")) {
     await requireOwnerSession(request, env.DB, stateChanging);
-    return;
+    return null; // Owner browser sessions use their own Web replica identity.
   }
-  await requireDeviceAccess(request, env.DB, capability);
+  return await requireDeviceAccess(request, env.DB, capability);
+}
+
+function requireActorDevice(actor: string | null, submittedDeviceId: string): void {
+  if (actor !== null && actor !== submittedDeviceId) {
+    throw new ContractError("unauthorized", "The request device does not match its authenticated access.");
+  }
 }
 
 async function readBoundedBody(request: Request): Promise<string> {

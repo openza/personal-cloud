@@ -64,7 +64,7 @@ export async function applyTaskReopen(
     db.prepare(`
       UPDATE tasks
       SET completion_state = 'open', completed_at = NULL, entity_version = ?1
-      WHERE id = ?2 AND entity_version = ?3 AND completion_state = 'completed'
+      WHERE id = ?2 AND entity_version = ?3 AND completion_state = 'completed' AND deleted_at IS NULL
     `).bind(entityVersion, mutation.entityId, mutation.baseEntityVersion),
   ];
 
@@ -145,6 +145,6 @@ export async function applyTaskReopen(
 }
 
 async function findTask(db: D1Database, entityId: string): Promise<TaskStateRow | null> {
-  return db.prepare("SELECT completion_state, entity_version FROM tasks WHERE id = ?1")
+  return db.prepare("SELECT completion_state, entity_version FROM tasks WHERE id = ?1 AND deleted_at IS NULL")
     .bind(entityId).first<TaskStateRow>();
 }

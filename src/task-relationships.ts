@@ -46,7 +46,12 @@ export async function applyTaskRelationship(db: D1Database, mutation: TaskRelati
     if (mutation.payload.parentId !== null) {
       const parent=await db.prepare("SELECT space_id,parent_id FROM tasks WHERE id=?1 AND deleted_at IS NULL").bind(mutation.payload.parentId).first<{space_id:string,parent_id:string|null}>();
       if(!parent || parent.space_id!==task.space_id) throw new ContractError("parent_not_found","The parent must exist in the same Space.");
-      if(parent.parent_id===mutation.entityId) throw new ContractError("invalid_request","The parent relationship would create a cycle.");
+      const cycle = await db.prepare(`WITH RECURSIVE ancestors(id,parent_id) AS (
+        SELECT id,parent_id FROM tasks WHERE id=?1
+        UNION SELECT t.id,t.parent_id FROM tasks t JOIN ancestors a ON t.id=a.parent_id
+      ) SELECT 1 AS found FROM ancestors WHERE id=?2 LIMIT 1`)
+        .bind(mutation.payload.parentId, mutation.entityId).first();
+      if(cycle) throw new ContractError("invalid_request","The parent relationship would create a cycle.");
     }
     if(task.parent_id===mutation.payload.parentId) throw new ContractError("invalid_request","The parent is unchanged.");
     domain.push(db.prepare("UPDATE tasks SET parent_id=?1,entity_version=?2 WHERE id=?3 AND entity_version=?4").bind(mutation.payload.parentId,version,mutation.entityId,task.entity_version));
@@ -63,7 +68,9 @@ export async function applyTaskRelationship(db: D1Database, mutation: TaskRelati
     db.prepare("INSERT INTO device_sequences(device_id,last_sequence) VALUES(?1,?2) ON CONFLICT(device_id) DO UPDATE SET last_sequence=excluded.last_sequence WHERE device_sequences.last_sequence+1=excluded.last_sequence").bind(mutation.deviceId,mutation.deviceSequence),
   ];
   try { await db.batch(statements); } catch(error) {
-    const raced=await findReceipt(db,mutation.mutationId); if(raced) return duplicateOrReuse(raced,hash); throw error;
+    const raced=await findReceipt(db,mutation.mutationId); if(raced) return duplicateOrReuse(raced,hash);
+    if (String(error).includes("task parent cycle")) throw new ContractError("invalid_request", "The parent relationship would create a cycle.");
+    throw error;
   }
   const receipt=await findReceipt(db,mutation.mutationId); if(!receipt) throw new Error("Relationship mutation completed without a receipt.");
   return toReceipt(receipt,"accepted");

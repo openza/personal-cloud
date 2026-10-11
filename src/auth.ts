@@ -61,7 +61,8 @@ export async function finishOwnerBootstrap(request: Request, env: AuthEnv, raw: 
       consumeChallenge(env.DB, liveChallenge.challenge_hash, now),
       env.DB.prepare("UPDATE owner_bootstrap SET consumed_at=?1 WHERE singleton=1 AND consumed_at IS NULL")
         .bind(now.toISOString()),
-      env.DB.prepare(`INSERT INTO recovery_codes(version,verifier_hash,created_at) VALUES(1,?1,?2)`)
+      env.DB.prepare(`INSERT INTO recovery_codes(version,verifier_hash,created_at)
+        SELECT COALESCE(MAX(version),0)+1,?1,?2 FROM recovery_codes`)
         .bind(await hash(recoveryCode), now.toISOString()),
       insertSession(env.DB, session, credential.id, now, expiresAt, absoluteExpiresAt),
     ]);

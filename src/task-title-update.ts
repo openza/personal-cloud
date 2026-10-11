@@ -100,40 +100,40 @@ export async function applyTaskOpenzaFieldsUpdate(
     ? db.prepare(`
         UPDATE tasks
         SET title = ?1, entity_version = ?2
-        WHERE id = ?3 AND entity_version = ?4
+        WHERE id = ?3 AND entity_version = ?4 AND deleted_at IS NULL
       `).bind(mutation.payload.title, entityVersion, mutation.entityId, mutation.baseEntityVersion)
     : "workflowStatus" in mutation.payload
       ? db.prepare(`
           UPDATE tasks
           SET workflow_status = ?1, entity_version = ?2
-          WHERE id = ?3 AND entity_version = ?4
+          WHERE id = ?3 AND entity_version = ?4 AND deleted_at IS NULL
         `).bind(mutation.payload.workflowStatus, entityVersion, mutation.entityId, mutation.baseEntityVersion)
       : "priority" in mutation.payload
         ? db.prepare(`
             UPDATE tasks
             SET priority = ?1, entity_version = ?2
-            WHERE id = ?3 AND entity_version = ?4
+            WHERE id = ?3 AND entity_version = ?4 AND deleted_at IS NULL
           `).bind(mutation.payload.priority, entityVersion, mutation.entityId, mutation.baseEntityVersion)
         : "plannedOn" in mutation.payload
           ? db.prepare(`
               UPDATE tasks
               SET planned_on = ?1, planned_at = NULL, entity_version = ?2
-              WHERE id = ?3 AND entity_version = ?4
+              WHERE id = ?3 AND entity_version = ?4 AND deleted_at IS NULL
             `).bind(mutation.payload.plannedOn, entityVersion, mutation.entityId, mutation.baseEntityVersion)
           : "plannedAt" in mutation.payload
             ? db.prepare(`
               UPDATE tasks
               SET planned_at = ?1, planned_on = NULL, entity_version = ?2
-              WHERE id = ?3 AND entity_version = ?4
+              WHERE id = ?3 AND entity_version = ?4 AND deleted_at IS NULL
             `).bind(mutation.payload.plannedAt, entityVersion, mutation.entityId, mutation.baseEntityVersion)
             : "notes" in mutation.payload
               ? db.prepare(`
                   UPDATE tasks SET notes = ?1, entity_version = ?2
-                  WHERE id = ?3 AND entity_version = ?4
+                  WHERE id = ?3 AND entity_version = ?4 AND deleted_at IS NULL
                 `).bind(mutation.payload.notes, entityVersion, mutation.entityId, mutation.baseEntityVersion)
               : db.prepare(`
                   UPDATE tasks SET deadline_on = ?1, entity_version = ?2
-                  WHERE id = ?3 AND entity_version = ?4
+                  WHERE id = ?3 AND entity_version = ?4 AND deleted_at IS NULL
                 `).bind(mutation.payload.deadlineOn, entityVersion, mutation.entityId, mutation.baseEntityVersion);
   const statements: D1PreparedStatement[] = [
     db.prepare(`
@@ -215,6 +215,6 @@ export async function applyTaskOpenzaFieldsUpdate(
 }
 
 async function findTask(db: D1Database, entityId: string): Promise<TaskVersionRow | null> {
-  return db.prepare("SELECT title, workflow_status, priority, planned_on, planned_at, notes, deadline_on, entity_version FROM tasks WHERE id = ?1")
+  return db.prepare("SELECT title, workflow_status, priority, planned_on, planned_at, notes, deadline_on, entity_version FROM tasks WHERE id = ?1 AND deleted_at IS NULL")
     .bind(entityId).first<TaskVersionRow>();
 }

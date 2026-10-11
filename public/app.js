@@ -1,5 +1,6 @@
 const cacheKey="openza-personal-cloud-last-known",deviceKey="openza-personal-cloud-web-device",sequenceKey="openza-personal-cloud-web-sequence",workspaceStateKey="openza-personal-cloud-workspace-state";
 import { readAllTasks } from "./task-pages.js?v=paging-1";
+import { createMutationSender } from "./mutation-queue.js?v=durable-1";
 const proactiveRefreshMs=45_000,freshnessLimitMs=60_000,retryRefreshMs=15_000,sessionRotationMs=10*60_000;
 const $=selector=>document.querySelector(selector);
 const settingsRoute=location.pathname==="/settings"||location.pathname==="/settings/";
@@ -9,6 +10,7 @@ const recoveryResult=$("#recovery-result"),tasksPanel=$("#tasks-panel"),devicesP
 const taskDialog=$("#task-dialog"),detailsDialog=$("#details-dialog");
 let csrfToken=null,refreshTimer,freshnessTimer,sessionTimer,taskLoadInFlight=false,currentInstanceId,currentPayload={tasks:[],spaces:[],projects:[],labels:[]},currentEditable=false,currentView="inbox",selectedSpaceId=null,selectedTaskId=null;
 const deviceId=localStorage.getItem(deviceKey)||`web_${crypto.randomUUID()}`;localStorage.setItem(deviceKey,deviceId);
+const submitMutation=createMutationSender({storage:localStorage,locks:navigator.locks,sequenceKey,makeId:()=>`mutation_${crypto.randomUUID()}`,now:()=>new Date().toISOString(),send:body=>api("/v1/tasks/mutations",{method:"POST",csrf:true,body})});
 let lastConfirmed=null;
 
 restoreWorkspaceState();configureRoute();consumeSetupFragment();bindEvents();start();
@@ -130,7 +132,7 @@ async function deleteSelectedTask(){const task=currentPayload.tasks.find(item=>i
 async function addSelectedLabel(){const task=currentPayload.tasks.find(item=>item.id===selectedTaskId),label=currentPayload.labels.find(item=>item.id===$("#details-add-label").value);if(!task||!label)return;try{await sendMutation(task.id,task.entityVersion,"task.addLabel",{label:{id:label.id,name:label.name}});await finishMutations();openDetails(task.id);}catch(error){showDialogError(detailsDialog,error.message);}}
 async function removeSelectedLabel(labelId){const task=currentPayload.tasks.find(item=>item.id===selectedTaskId);if(!task)return;try{await sendMutation(task.id,task.entityVersion,"task.removeLabel",{labelId});await finishMutations();openDetails(task.id);}catch(error){showDialogError(detailsDialog,error.message);}}
 
-async function sendMutation(entityId,baseEntityVersion,operation,payload){const storageKey=`${sequenceKey}:${currentInstanceId}:${deviceId}`,sequence=Number(localStorage.getItem(storageKey)||"1"),body={protocolVersion:1,product:"tasks",instanceId:currentInstanceId,deviceId,mutationId:`mutation_${crypto.randomUUID()}`,deviceSequence:sequence,operation,entityId,baseEntityVersion,payload,clientCreatedAt:new Date().toISOString()};setStatus("loading","Saving");const receipt=await api("/v1/tasks/mutations",{method:"POST",csrf:true,body});localStorage.setItem(storageKey,String(sequence+1));return receipt;}
+async function sendMutation(entityId,baseEntityVersion,operation,payload){setStatus("loading","Saving");try{return await submitMutation(currentInstanceId,deviceId,entityId,baseEntityVersion,operation,payload);}catch(error){if(error.code==="pending_reconciled")await loadTasks();throw error;}}
 async function finishMutations(){await rotateSession();await loadTasks();}
 function setDialogBusy(dialog,busy){dialog.querySelectorAll("input,textarea,select,button").forEach(control=>control.disabled=busy);dialog.classList.toggle("busy",busy);}
 function showDialogError(dialog,message){let error=dialog.querySelector(".dialog-error");if(!error){error=document.createElement("p");error.className="dialog-error";dialog.querySelector(".dialog-actions").before(error);}error.textContent=message;}

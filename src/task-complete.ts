@@ -64,7 +64,7 @@ export async function applyTaskComplete(
     db.prepare(`
       UPDATE tasks
       SET completion_state = 'completed', completed_at = ?1, entity_version = ?2
-      WHERE id = ?3 AND entity_version = ?4 AND completion_state = 'open'
+      WHERE id = ?3 AND entity_version = ?4 AND completion_state = 'open' AND deleted_at IS NULL
     `).bind(mutation.payload.completedAt, entityVersion, mutation.entityId, mutation.baseEntityVersion),
   ];
 
@@ -145,6 +145,6 @@ export async function applyTaskComplete(
 }
 
 async function findTask(db: D1Database, entityId: string): Promise<TaskStateRow | null> {
-  return db.prepare("SELECT completion_state, entity_version FROM tasks WHERE id = ?1")
+  return db.prepare("SELECT completion_state, entity_version FROM tasks WHERE id = ?1 AND deleted_at IS NULL")
     .bind(entityId).first<TaskStateRow>();
 }

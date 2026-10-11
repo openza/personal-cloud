@@ -11,13 +11,9 @@ export async function beginRecovery(request: Request, db: D1Database): Promise<R
   const recoveryCode = requireText(body.recoveryCode, "recoveryCode", 20, 256);
   const displayName = requireText(body.displayName, "displayName", 1, 80).trim();
   const active = await activeRecovery(db);
-  if (!active || active.attempt_count >= 8 || await hash(recoveryCode) !== active.verifier_hash) {
-    if (active && active.attempt_count < 8) {
-      await db.prepare("UPDATE recovery_codes SET attempt_count=attempt_count+1 WHERE version=?1 AND consumed_at IS NULL")
-        .bind(active.version).run();
-    }
-    throw unauthorized();
-  }
+  // Wrong anonymous guesses must not permanently invalidate the owner's secret.
+  // The expiring per-IP rate limit above bounds guesses without a global lockout.
+  if (!active || await hash(recoveryCode) !== active.verifier_hash) throw unauthorized();
   const challenge = randomToken(32);
   const now = new Date();
   await db.prepare(`INSERT INTO auth_challenges(challenge_hash,purpose,expires_at,created_at)
@@ -31,12 +27,13 @@ export async function beginRecovery(request: Request, db: D1Database): Promise<R
 }
 
 export async function finishRecovery(request: Request, db: D1Database): Promise<Response> {
+  await requireRateLimit(db, `recovery:${request.headers.get("cf-connecting-ip") ?? "local"}`);
   const body = exactObject(await request.text(), ["recoveryCode", "displayName", "challenge", "credential"]);
   const recoveryCode = requireText(body.recoveryCode, "recoveryCode", 20, 256);
   const displayName = requireText(body.displayName, "displayName", 1, 80).trim();
   const challenge = requireText(body.challenge, "challenge", 16, 256);
   const active = await activeRecovery(db);
-  if (!active || active.attempt_count >= 8 || await hash(recoveryCode) !== active.verifier_hash) throw unauthorized();
+  if (!active || await hash(recoveryCode) !== active.verifier_hash) throw unauthorized();
   const challengeHash = await hash(challenge);
   const storedChallenge = await db.prepare(`SELECT expires_at,consumed_at FROM auth_challenges
     WHERE challenge_hash=?1 AND purpose='recovery_register'`).bind(challengeHash)

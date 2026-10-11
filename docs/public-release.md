@@ -16,7 +16,13 @@ Checked on 11 October 2026 against cloud source `23f15e9`:
 - The owner selected `openza.org` as the publisher domain. Purchase is not DNS verification or authorization to promote OAuth.
 - The public website now lives in the separate [openza/website](https://github.com/openza/website) repository. The product page, logos, setup guide and privacy guide are deployed at `https://openza.org/`. After explicit owner approval on 11 October 2026, Cloudflare's dashboard confirms the existing OAuth client is Public and Verified. This enables authorization by other Cloudflare users; it does not publish their tasks or certify the final Desktop release.
 - Source access is now public with the owner's explicit approval. Anonymous Git access and the pinned source revision both return HTTP 200. A fresh credential-free staging build passed, with the expected manifest and all 24 entries verified. This removes the previously confirmed private-repository blocker; hosted CI acceptance remains a distinct unperformed check.
-- The existing OAuth client has the Openza logo and `https://openza.org/privacy/` policy URL, retaining its original callback, PKCE flow and three required scopes. Public promotion is complete; authorization outside the publisher account still requires acceptance testing. Website visibility wording has been corrected separately; that copy update has not yet been deployed.
+- The existing OAuth client has the Openza logo and `https://openza.org/privacy/` policy URL, retaining its original callback, PKCE flow and three required scopes. Public promotion is complete; authorization outside the publisher account still requires acceptance testing. Corrected Website visibility wording is now deployed and verified separately; no task cloud was changed by the Website deployment.
+
+### Full integration review candidate
+
+The initial recovered implementation needs additional hardening before production release. The `0.1.0-preview.8` candidate adds authenticated replica identity checks, durable serialized browser mutation retries, recovery continuity, deleted-task protection and atomic full-chain parent-cycle validation. Migration 0018 adds the parent invariant; schema health is now 18. Existing preview.7 remains deployed until an approved backed-up update.
+
+Candidate deterministic checks passed: typecheck, 88 Worker tests, eight Web paging/retry tests and four emergency-rebootstrap tests, including execution of the real generated administrative SQL followed by replacement passkey bootstrap in isolated memory. Fresh full-integration review identified six defects; the correction review confirmed all six closed with no actionable P1/P2 regression. Final artifact/companion packaging acceptance remains required. Local tests do not establish live D1 recovery or public cross-account OAuth acceptance. Snap and Windows remain excluded.
 
 ## Reproducible Desktop handoff
 
