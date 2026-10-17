@@ -17,7 +17,8 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
       protocolVersion: 1,
       product: "tasks",
       artifactVersion: "0.0.0-test",
-      schemaVersion: 20,
+      schemaVersion: 24,
+      capabilities:{mutationBatch:{protocolVersion:1,path:"/v1/tasks/mutations/batch",maxMutations:2,maxRequestUtf8Bytes:16384},workspace:{protocolVersion:1,path:"/v1/tasks/mutations",schemaVersion:24},providerCatalog:{protocolVersion:2,path:"/v1/provider/catalog",intentsPath:"/v1/provider/intents"},workspacePaging:{protocolVersion:1,bootstrapPath:"/sync/bootstrap",changesPath:"/sync/changes",maxResponseUtf8Bytes:2097152,maxPageRecords:100}},
     });
   });
 
@@ -99,9 +100,9 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(browserCode).toContain("60_000");
     expect(browserCode).toContain("retryRefreshMs=15_000");
     expect(browserCode).toContain("loadTasks({background:true})");
-    expect(browserCode).toContain("await readAllTasks(api)");
+    expect(browserCode).toContain("readAllTasks(api)");
     expect(browserCode).toContain("sessionStorage.getItem(workspaceStateKey)");
-    expect(browserCode).toContain("sessionStorage.setItem(workspaceStateKey");
+    expect(browserCode).toContain("localStorage.setItem(workspaceStateKey");
     expect(browserCode).toContain('api("/auth/session/rotate"');
     expect(browserCode).toContain("sessionRotationMs=10*60_000");
     expect(browserCode).toContain("navigator.credentials.create");
@@ -119,7 +120,7 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(browserCode).not.toContain("prompt(");
     expect(browserCode).not.toContain("k5-local-read-only");
     expect(browserCode).not.toContain("x-openza-test-session");
-    for (const operation of ["task.updateOpenzaFields","task.complete","task.reopen","task.delete","task.setProject","task.move","task.addLabel","task.removeLabel","task.setParent"])
+    for (const operation of ["task.createRich","task.patch","task.moveTree","task.complete","task.reopen","task.delete","task.addLabel","task.removeLabel"])
       expect(browserCode).toContain(operation);
 
     expect(styles.status).toBe(200);

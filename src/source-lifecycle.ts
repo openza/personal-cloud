@@ -12,6 +12,11 @@ type TaskRow = { entity_version: number; deleted_at?: string|null };
 type SourceRow = { integration_kind: string; external_id_hash: string; refreshed_at: string };
 type CommandRow = { command: "complete" | "reopen"; state: string; requested_change_seq: number };
 
+// Match the partial index in migration23 exactly. Rich creation has one complete
+// task record; tree/cascade records must never substitute a different task's source.
+export const sourceHistoryKindSql = `coalesce(json_extract(payload_json,'$.task.source.integrationKind'),json_extract(payload_json,'$.source.integrationKind'),CASE WHEN operation='workspace.changed' AND json_extract(payload_json,'$.tasks[0].id')=entity_id THEN json_extract(payload_json,'$.tasks[0].source.integrationKind') END)`;
+const sourceHistoryHashSql = `coalesce(json_extract(payload_json,'$.task.source.externalIdHash'),json_extract(payload_json,'$.source.externalIdHash'),CASE WHEN operation='workspace.changed' AND json_extract(payload_json,'$.tasks[0].id')=entity_id THEN json_extract(payload_json,'$.tasks[0].source.externalIdHash') END)`;
+
 export async function applySourceRefresh(
   db: D1Database,
   mutation: SourceRefreshMutation,
@@ -23,19 +28,19 @@ export async function applySourceRefresh(
   await requireNextSequence(db, mutation.deviceId, mutation.deviceSequence);
   const task = await db.prepare("SELECT entity_version,deleted_at FROM tasks WHERE id=?1")
     .bind(mutation.entityId).first<TaskRow>();
-  if (!task && !await db.prepare("SELECT change_seq FROM changes WHERE entity_id=?1 AND operation='task.deleted' LIMIT 1")
+  if (!task && !await db.prepare("SELECT change_seq FROM changes WHERE entity_id=?1 AND operation='task.deleted' ORDER BY change_seq DESC LIMIT 1")
     .bind(mutation.entityId).first()) throw new ContractError("entity_not_found", "The Openza task does not exist.");
   const current = await db.prepare(`SELECT integration_kind,external_id_hash,refreshed_at
     FROM source_descriptors WHERE task_id=?1`).bind(mutation.entityId).first<SourceRow>();
   // A task read may precede compaction. Consult immutable history when the
   // descriptor disappears, but only for a proven deletion; live native tasks
   // must not acquire a source link from historical data.
-  const knownDeletion=!current?await db.prepare("SELECT change_seq FROM changes WHERE entity_id=?1 AND operation='task.deleted' LIMIT 1")
+  const knownDeletion=!current?await db.prepare("SELECT change_seq FROM changes WHERE entity_id=?1 AND operation='task.deleted' ORDER BY change_seq DESC LIMIT 1")
     .bind(mutation.entityId).first():null;
   const binding=current??(knownDeletion?await db.prepare(`SELECT
-    coalesce(json_extract(payload_json,'$.task.source.integrationKind'),json_extract(payload_json,'$.source.integrationKind')) AS integration_kind,
-    coalesce(json_extract(payload_json,'$.task.source.externalIdHash'),json_extract(payload_json,'$.source.externalIdHash')) AS external_id_hash
-    FROM changes WHERE entity_id=?1 AND coalesce(json_extract(payload_json,'$.task.source.integrationKind'),json_extract(payload_json,'$.source.integrationKind')) IS NOT NULL
+    ${sourceHistoryKindSql} AS integration_kind,
+    ${sourceHistoryHashSql} AS external_id_hash
+    FROM changes WHERE entity_id=?1 AND ${sourceHistoryKindSql} IS NOT NULL
     ORDER BY change_seq DESC LIMIT 1`).bind(mutation.entityId).first<SourceRow>():null);
   if (!binding) throw new ContractError("source_not_found", "The Openza task has no source link.");
   if (binding.integration_kind !== mutation.payload.source.integrationKind ||
@@ -158,13 +163,16 @@ function deviceClaim(db: D1Database, deviceId: string, sequence: number, mutatio
     .bind(deviceId, sequence, mutationId);
 }
 
-function appendSourceChange(db: D1Database, mutation: SourceRefreshMutation, acceptedAt: string) {
+export function appendSourceChange(db: D1Database, mutation: SourceRefreshMutation, acceptedAt: string) {
   return db.prepare(`WITH deleted AS (SELECT entity_version,payload_json FROM changes
-      WHERE entity_id=?2 AND operation='task.deleted' ORDER BY change_seq DESC LIMIT 1),
+      WHERE entity_id=?2 AND operation='task.deleted'
+        AND NOT EXISTS(SELECT 1 FROM tasks WHERE id=?2)
+      ORDER BY change_seq DESC LIMIT 1),
     historical_source AS (SELECT
-      coalesce(json_extract(payload_json,'$.task.source.integrationKind'),json_extract(payload_json,'$.source.integrationKind')) AS integration_kind,
-      coalesce(json_extract(payload_json,'$.task.source.externalIdHash'),json_extract(payload_json,'$.source.externalIdHash')) AS external_id_hash
-      FROM changes WHERE entity_id=?2 AND coalesce(json_extract(payload_json,'$.task.source.integrationKind'),json_extract(payload_json,'$.source.integrationKind')) IS NOT NULL
+      ${sourceHistoryKindSql} AS integration_kind,
+      ${sourceHistoryHashSql} AS external_id_hash
+      FROM changes WHERE entity_id=?2 AND NOT EXISTS(SELECT 1 FROM tasks WHERE id=?2)
+        AND ${sourceHistoryKindSql} IS NOT NULL
       ORDER BY change_seq DESC LIMIT 1)
     INSERT INTO changes(change_seq,protocol_version,product,mutation_id,operation,entity_kind,
     entity_id,entity_version,payload_json,server_accepted_at)

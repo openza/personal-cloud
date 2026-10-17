@@ -39,7 +39,14 @@ async function alias(f:Awaited<ReturnType<typeof fixture>>){
   const id=crypto.randomUUID().replaceAll("-",""),taskId=`alias.${id}`,deviceId=`web.alias.${id}`;
   const create={...f.envelope,entityId:taskId,deviceId,mutationId:`alias.create.${id}`,
     payload:{...f.envelope.payload,task:{...f.envelope.payload.task,id:taskId}}};
-  expect((await post(create)).status).toBe(201);
+  // Preserve pre-existing cross-device aliases in this delivery-safety fixture.
+  // New source creation rejects foreign ownership; historical ambiguity must
+  // still block delivery without merging or losing either task.
+  expect((await post({...create,payload:{task:create.payload.task}})).status).toBe(201);
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO source_descriptors SELECT ?1,integration_kind,external_id_hash,source_url,source_title,source_description,source_project_name,source_priority,source_planned_on,source_planned_at,source_deadline_on,source_deadline_at,recurrence_rule,refreshed_at FROM source_descriptors WHERE task_id=?2').bind(taskId,f.taskId),
+    env.DB.prepare('UPDATE tasks SET source_owner_device_id=?1 WHERE id=?2').bind(deviceId,taskId),
+  ]);
   const response=await post({...create,deviceSequence:2,mutationId:`alias.complete.${id}`,operation:"task.complete",baseEntityVersion:1,payload:{completedAt:at}});
   expect(response.status).toBe(201);const receipt=await response.json() as any;
   return{create,request:{...f.request,taskId,claimId:`alias.claim.${id}`,requestedChangeSeq:receipt.changeSeq}};

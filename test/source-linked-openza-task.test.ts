@@ -119,11 +119,12 @@ it("refreshes safe source facts and confirms a fake desktop provider write",asyn
 it("acknowledges stale and equal source snapshots durably without changing current facts or blocking later edits",async()=>{
   const id=crypto.randomUUID(),localCreate=structuredClone(create);localCreate.instanceId=env.INSTANCE_ID;
   localCreate.entityId=`task.${id}`;localCreate.payload.task.id=localCreate.entityId;localCreate.deviceId=`device.${id}`;localCreate.mutationId=`create.${id}`;
+  localCreate.payload.source.externalIdHash=id.replaceAll('-','').repeat(2);
   expect((await post(localCreate)).status).toBe(201);
-  const newer={...source,title:"Newest source",refreshedAt:"2026-10-11T06:00:00.000Z"};
+  const newer={...localCreate.payload.source,title:"Newest source",refreshedAt:"2026-10-11T06:00:00.000Z"};
   const refresh={...localCreate,deviceId:`device.other.${id}`,mutationId:`refresh.new.${id}`,operation:"source.refreshSnapshot",baseEntityVersion:null,payload:{source:newer}};
   expect((await post(refresh)).status).toBe(201);
-  const stale={...refresh,deviceId:localCreate.deviceId,deviceSequence:2,mutationId:`refresh.old.${id}`,payload:{source}};
+  const stale={...refresh,deviceId:localCreate.deviceId,deviceSequence:2,mutationId:`refresh.old.${id}`,payload:{source:localCreate.payload.source}};
   const response=await post(stale),receipt=await response.json() as any;expect(response.status).toBe(201);expect(receipt.entityVersion).toBe(1);
   const replay=await post(stale);expect(replay.status).toBe(200);expect(await replay.json()).toMatchObject({outcome:"duplicate",changeSeq:receipt.changeSeq});
   const feed=await env.DB.prepare("SELECT payload_json FROM changes WHERE mutation_id=?1").bind(stale.mutationId).first<{payload_json:string}>();
@@ -138,8 +139,8 @@ it("acknowledges stale and equal source snapshots durably without changing curre
 
 it("reads the authoritative source and task version inside the acceptance transaction after a concurrent refresh",async()=>{
   const id=crypto.randomUUID(),localCreate=structuredClone(create);localCreate.instanceId=env.INSTANCE_ID;localCreate.entityId=`task.${id}`;
-  localCreate.payload.task.id=localCreate.entityId;localCreate.deviceId=`device.${id}`;localCreate.mutationId=`create.${id}`;expect((await post(localCreate)).status).toBe(201);
-  const refreshed={...source,title:"Older queued source",refreshedAt:"2026-10-11T06:00:00.000Z"};
+  localCreate.payload.task.id=localCreate.entityId;localCreate.deviceId=`device.${id}`;localCreate.mutationId=`create.${id}`;localCreate.payload.source.externalIdHash=id.replaceAll('-','').repeat(2);expect((await post(localCreate)).status).toBe(201);
+  const refreshed={...localCreate.payload.source,title:"Older queued source",refreshedAt:"2026-10-11T06:00:00.000Z"};
   const refresh={...localCreate,deviceSequence:2,mutationId:`refresh.raced.${id}`,operation:"source.refreshSnapshot",baseEntityVersion:null,payload:{source:refreshed}};
   const db=afterSourceRead(async()=>{
       expect((await post({...refresh,deviceId:`device.newer.${id}`,deviceSequence:1,mutationId:`newer.${id}`,payload:{source:{...refreshed,title:"Newer raced source",refreshedAt:"2026-10-11T07:00:00.000Z"}}})).status).toBe(201);
@@ -154,7 +155,7 @@ it("reads the authoritative source and task version inside the acceptance transa
 it("acknowledges queued, raced, and compacted deleted source facts without resurrection or sequence blockage",async()=>{
   for(const raced of["queued","afterTaskRead","afterSourceRead"])for(const purged of[false,true]){
     const id=crypto.randomUUID(),localCreate=structuredClone(create);localCreate.instanceId=env.INSTANCE_ID;localCreate.entityId=`task.${id}`;
-    localCreate.payload.task.id=localCreate.entityId;localCreate.deviceId=`device.${id}`;localCreate.mutationId=`create.${id}`;expect((await post(localCreate)).status).toBe(201);
+    localCreate.payload.task.id=localCreate.entityId;localCreate.deviceId=`device.${id}`;localCreate.mutationId=`create.${id}`;localCreate.payload.source.externalIdHash=id.replaceAll('-','').repeat(2);expect((await post(localCreate)).status).toBe(201);
     const deleteTask=async()=>{
       expect((await post({...localCreate,deviceId:`web.delete.${id}`,deviceSequence:1,mutationId:`delete.${id}`,operation:"task.delete",baseEntityVersion:1,payload:{deletedAt:at}})).status).toBe(201);
       if(purged){
@@ -166,7 +167,7 @@ it("acknowledges queued, raced, and compacted deleted source facts without resur
     };
     if(raced==="queued")await deleteTask();
     const refresh={...localCreate,deviceSequence:2,mutationId:`refresh.deleted.${id}`,operation:"source.refreshSnapshot",baseEntityVersion:null,
-      payload:{source:{...source,title:"Must not resurrect",refreshedAt:"2026-10-11T06:00:00.000Z"}}};
+      payload:{source:{...localCreate.payload.source,title:"Must not resurrect",refreshedAt:"2026-10-11T06:00:00.000Z"}}};
     const receipt=await applySourceRefresh(raced!=="queued"?afterSourceRead(deleteTask,raced==="afterTaskRead"):env.DB,refresh as any,JSON.stringify(refresh));
     expect(receipt.entityVersion).toBe(2);expect(receipt.outcome).toBe("accepted");
     const replay=await post(refresh);expect(replay.status).toBe(200);expect(await replay.json()).toMatchObject({outcome:"duplicate",changeSeq:receipt.changeSeq});

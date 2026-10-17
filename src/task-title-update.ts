@@ -50,6 +50,7 @@ export async function applyTaskOpenzaFieldsUpdate(
     throw new ContractError("sequence_gap", "The device sequence is not the next expected value.");
   }
 
+  if("title" in mutation.payload&&await db.prepare("SELECT task_id FROM source_descriptors WHERE task_id=?1").bind(mutation.entityId).first())throw new ContractError("invalid_request","Provider titles are read only.");
   const task = await findTask(db, mutation.entityId);
   if (!task) throw new ContractError("entity_not_found", "The task does not exist.");
   if (task.entity_version !== mutation.baseEntityVersion) {

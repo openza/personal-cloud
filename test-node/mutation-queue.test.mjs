@@ -45,3 +45,9 @@ test('auth failures retain pending envelopes; definitive rejection releases them
   status=409;await assert.rejects(h.sender());assert.equal(h.map.has('sequence:instance:web_device:pending'),false);
   assert.equal(h.map.get('sequence:instance:web_device'),undefined);
 });
+test('explicit CSRF rejection cannot leave a cancelled task queued for a later action',async()=>{
+ let rejected=true,accepted;
+ const h=harness(async body=>{if(rejected)throw Object.assign(new Error('CSRF rejected before mutation'),{status:403,code:'csrf_failed'});accepted=body;return receipt(body);});
+ await assert.rejects(h.sender({notes:'cancelled'},'first'));assert.equal(h.map.has('sequence:instance:web_device:pending'),false);
+ rejected=false;await h.sender({notes:'next'},'second');assert.equal(accepted.entityId,'second');assert.equal(accepted.deviceSequence,1);
+});

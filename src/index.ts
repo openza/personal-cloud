@@ -1,26 +1,25 @@
+import {workspaceCapability,providerCatalogCapability} from "./workspace-protocol.ts";
+import {readCatalog} from "./workspace-records.ts";
 import {
   ContractError,
   maximumRequestUtf8Bytes,
   parseCheckpointAcknowledgement,
   parseStrictJson,
   parseTaskMutation,
-  type TaskRelationshipMutation,
 } from "./protocol.ts";
-import { applyTaskCreate } from "./task-create.ts";
 import { pullChanges } from "./change-pull.ts";
 import { acknowledgeCheckpoint } from "./checkpoint-ack.ts";
 import { parseTaskCursor, readTasks } from "./task-read.ts";
-import { applyTaskOpenzaFieldsUpdate } from "./task-title-update.ts";
-import { applyTaskComplete } from "./task-complete.ts";
-import { applyTaskReopen } from "./task-reopen.ts";
-import { applyTaskDelete } from "./task-delete.ts";
-import { applyTaskRelationship } from "./task-relationships.ts";
 import { bootstrap, compact } from "./bootstrap.ts";
-import { applyExternalCommandResult, applySourceRefresh } from "./source-lifecycle.ts";
+import {bootstrapPage,workspacePagingCapability} from './workspace-paging.ts';
 import { authStatus, beginOwnerBootstrap, beginSignIn, finishOwnerBootstrap, finishSignIn, refreshOwnerCsrf, requireOwnerSession, rotateOwnerSession, signOut } from "./auth.ts";
-import { createPairingGrant, issueDeviceAccessToken, listDevices, pairDevice, requireDeviceAccess, revokeCurrentDevice, revokeDevice } from "./device-auth.ts";
+import { createPairingGrant, issueDeviceAccessToken, listDevices, pairDevice, requireDeviceAccess, requireDeviceCapabilities, revokeCurrentDevice, revokeDevice } from "./device-auth.ts";
 import { beginRecovery, finishRecovery } from "./recovery.ts";
 import { claimDelivery, startDelivery, parseDeliveryRequest, listDeliveries, reconcileDelivery,parseRetryRequest,retryDelivery } from "./provider-delivery.ts";
+
+import { readInitialStatus, reportInitialStatus } from "./initial-sync-status.ts";
+import { applyMutation, mutationCapability } from "./mutation-apply.ts";
+import { applyMutationBatch, mutationBatchCapability, parseMutationBatch } from "./mutation-batch.ts";
 
 export interface Env {
   DB: D1Database;
@@ -37,6 +36,7 @@ const statusByCode: Record<string, number> = {
   invalid_request: 400,
   unsupported_protocol: 400,
   unsupported_product: 400,
+  unsupported: 400,
   instance_mismatch: 400,
   sequence_gap: 409,
   mutation_id_reused: 409,
@@ -51,6 +51,9 @@ const statusByCode: Record<string, number> = {
   command_superseded: 409,
   delivery_busy: 409,
   stale_snapshot: 409,
+  upgrade_required:409,
+  bootstrap_changed:409,
+  response_too_large:409,
   unauthorized: 401,
   already_initialized: 409,
   not_initialized: 409,
@@ -67,7 +70,8 @@ export default {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/health") {
         if (url.search !== "") throw new ContractError("invalid_request", "Health does not accept query parameters.");
-        return noStoreJson({ status: "ok", protocolVersion: 1, product: "tasks", artifactVersion: env.ARTIFACT_VERSION, schemaVersion: 20 });
+        return noStoreJson({ status: "ok", protocolVersion: 1, product: "tasks", artifactVersion: env.ARTIFACT_VERSION,
+          schemaVersion: 24, capabilities: { mutationBatch: mutationBatchCapability, workspace:workspaceCapability,providerCatalog:providerCatalogCapability,workspacePaging:workspacePagingCapability } });
       }
       if (request.method === "GET" && url.pathname === "/auth/status") {
         return noStoreJson(await authStatus(env.DB));
@@ -116,10 +120,21 @@ export default {
       }
       const revokeMatch = request.method === "POST" ? url.pathname.match(/^\/auth\/devices\/([A-Za-z0-9_.:-]+)\/revoke$/) : null;
       if (revokeMatch) return await revokeDevice(request, env.DB, revokeMatch[1]);
+      if (url.pathname === "/sync/initial-status" && ["GET", "POST"].includes(request.method)) {
+        if (url.search !== "") throw new ContractError("invalid_request", "Initial status does not accept query parameters.");
+        if (request.method === "GET") {
+          await requireOwnerSession(request, env.DB);
+          return noStoreJson(await readInitialStatus(env.DB));
+        }
+        const deviceId = await requireDeviceAccess(request, env.DB, "desktop_sync");
+        return noStoreJson(await reportInitialStatus(env.DB, deviceId, await readBoundedBody(request)));
+      }
       if (request.method === "GET" && url.pathname === "/sync/bootstrap") {
-        if (url.search !== "") throw new ContractError("invalid_request", "Bootstrap does not accept query parameters.");
-        await authorizeSync(request, env, false, "desktop_sync");
-        return noStoreJson(await bootstrap(env.DB));
+        const paged=url.searchParams.get('paged')==='1',keys=[...url.searchParams.keys()];
+        if(keys.some(k=>!['workspace','paged','cursor'].includes(k)||url.searchParams.getAll(k).length!==1)||keys.includes('workspace')&&url.searchParams.get('workspace')!=='1'||(keys.includes('paged')||keys.includes('cursor'))&&(!paged||url.searchParams.get('workspace')!=='1')||!paged&&keys.includes('cursor'))throw new ContractError('invalid_request','Invalid workspace bootstrap parameters.');
+        const actor=await authorizeSync(request, env, false, "desktop_sync");
+        if(paged)return noStoreJson(await bootstrapPage(env.DB,env.INSTANCE_ID,actor??'owner',url.searchParams.get('cursor')));
+        return noStoreJson(await bootstrap(env.DB,url.searchParams.get("workspace")==="1"));
       }
       if (request.method === "POST" && url.pathname === "/sync/compact") {
         if (env.TEST_MODE === "true") {
@@ -128,6 +143,13 @@ export default {
         const body=parseStrictJson(await readBoundedBody(request)) as {now?:unknown};
         if(body===null || typeof body!=="object" || Object.keys(body).length!==1 || typeof body.now!=="string") throw new ContractError("invalid_request","Compaction requires only a now timestamp.");
         return noStoreJson(await compact(env.DB,body.now));
+      }
+      if(request.method==="GET"&&["/v1/provider/catalog","/v1/provider/intents"].includes(url.pathname)){
+        if(url.search!=="")throw new ContractError("invalid_request","Catalog reads do not accept query parameters.");
+        let device:string|undefined;
+        if(url.pathname.endsWith("/intents")){device=env.TEST_MODE==="true"?request.headers.get("x-openza-test-device")??undefined:await requireDeviceAccess(request,env.DB,"provider_bridge");if(!device)throw new ContractError("unauthorized","Provider bridge required.");}
+        else if(env.TEST_MODE!=="true")await requireOwnerSession(request,env.DB);
+        return noStoreJson(await readCatalog(env.DB,env.INSTANCE_ID,device));
       }
       if (request.method === "GET" && url.pathname === "/v1/tasks") {
         if (env.TEST_MODE === "true") {
@@ -160,13 +182,14 @@ export default {
       if (request.method === "GET" && url.pathname === "/sync/changes") {
         await authorizeSync(request, env, false, "desktop_sync");
         const keys = [...url.searchParams.keys()];
-        if (keys.length !== 2 || !keys.includes("after") || !keys.includes("limit") ||
+        const paged=url.searchParams.get('paged')==='1';
+        if (keys.some(k=>!["after","limit","workspace","paged"].includes(k)||url.searchParams.getAll(k).length!==1) || keys.includes('workspace')&&url.searchParams.get('workspace')!=='1'||keys.includes('paged')&&(!paged||url.searchParams.get('workspace')!=='1') || !keys.includes("after") || !keys.includes("limit") ||
             url.searchParams.getAll("after").length !== 1 || url.searchParams.getAll("limit").length !== 1) {
           throw new ContractError("invalid_request", "K3 requires exactly one after and one limit parameter.");
         }
         const after = parseNonNegativeInteger(url.searchParams.get("after"), "after");
         const limit = parseBoundedLimit(url.searchParams.get("limit"));
-        return Response.json(await pullChanges(env.DB, after, limit));
+        return noStoreJson(await pullChanges(env.DB, after, limit,url.searchParams.get("workspace")==="1",paged));
       }
       if (request.method === "POST" && url.pathname === "/sync/checkpoints") {
         const actor = await authorizeSync(request, env, true, "desktop_sync");
@@ -174,6 +197,14 @@ export default {
         const acknowledgement = parseCheckpointAcknowledgement(rawRequest, env.INSTANCE_ID);
         requireActorDevice(actor, acknowledgement.deviceId);
         return Response.json(await acknowledgeCheckpoint(env.DB, acknowledgement));
+      }
+      if (request.method === "POST" && url.pathname === mutationBatchCapability.path) {
+        if (url.search !== "") throw new ContractError("invalid_request", "Mutation batches do not accept query parameters.");
+        const items = parseMutationBatch(await readBoundedBody(request), env.INSTANCE_ID);
+        const actor = await requireDeviceCapabilities(request, env.DB,
+          [...new Set(items.map(item => mutationCapability(item.mutation)))]);
+        requireActorDevice(actor, items[0].mutation.deviceId);
+        return noStoreJson(await applyMutationBatch(env.DB, env.INSTANCE_ID, items, publicMutationError));
       }
       if (request.method !== "POST" || url.pathname !== "/v1/tasks/mutations") {
         if (request.method === "GET" && !url.pathname.startsWith("/v1/") && !url.pathname.startsWith("/sync/")) {
@@ -187,20 +218,9 @@ export default {
 
       const rawRequest = await readBoundedBody(request);
       const mutation = parseTaskMutation(rawRequest, env.INSTANCE_ID);
-      const actor = await authorizeSync(request, env, true,
-        mutation.operation === "source.refreshSnapshot" || mutation.operation.startsWith("externalCommand.")
-          ? "provider_bridge" : "desktop_sync");
+      const actor = await authorizeSync(request, env, true, mutationCapability(mutation));
       requireActorDevice(actor, mutation.deviceId);
-      let receipt;
-      if (mutation.operation === "task.create") receipt = await applyTaskCreate(env.DB, mutation, rawRequest);
-      else if (mutation.operation === "task.complete") receipt = await applyTaskComplete(env.DB, mutation, rawRequest);
-      else if (mutation.operation === "task.reopen") receipt = await applyTaskReopen(env.DB, mutation, rawRequest);
-      else if (mutation.operation === "task.delete") receipt = await applyTaskDelete(env.DB, mutation, rawRequest);
-      else if (mutation.operation === "task.updateOpenzaFields") receipt = await applyTaskOpenzaFieldsUpdate(env.DB, mutation, rawRequest);
-      else if (mutation.operation === "source.refreshSnapshot") receipt = await applySourceRefresh(env.DB, mutation, rawRequest);
-      else if (mutation.operation === "externalCommand.confirm" || mutation.operation === "externalCommand.reject") {
-        receipt = await applyExternalCommandResult(env.DB, mutation, rawRequest);
-      } else receipt = await applyTaskRelationship(env.DB, mutation as TaskRelationshipMutation, rawRequest);
+      const receipt = await applyMutation(env.DB, mutation, rawRequest);
       return Response.json(receipt, { status: receipt.outcome === "accepted" ? 201 : 200 });
     } catch (error) {
       if (error instanceof ContractError) return errorResponse(error);
@@ -262,17 +282,20 @@ function parseBoundedLimit(value: string | null): number {
 }
 
 function errorResponse(error: ContractError): Response {
-  const code = error.code in statusByCode ? error.code : "internal_error";
-  return noStoreJson({
-    protocolVersion: 1,
-    product: "tasks",
-    error: {
+  const detail = publicMutationError(error);
+  return noStoreJson({ protocolVersion: 1, product: "tasks", error: detail }, { status: statusByCode[detail.code] ?? 500 });
+}
+
+function publicMutationError(error: unknown) {
+  if (!(error instanceof ContractError)) error = new ContractError("internal_error", "The mutation could not be applied.");
+  const contract = error as ContractError;
+  const code = contract.code in statusByCode ? contract.code : "internal_error";
+  return {
       code,
-      message: code === "internal_error" ? "The mutation could not be applied." : error.message,
+      message: code === "internal_error" ? "The mutation could not be applied." : contract.message,
       retryable: retryableCodes.has(code),
       requestId: `request_${crypto.randomUUID()}`,
-    },
-  }, { status: statusByCode[code] ?? 500 });
+  };
 }
 
 function noStoreJson(value: unknown, init: ResponseInit = {}): Response {

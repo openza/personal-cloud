@@ -19,13 +19,17 @@ export async function applyTaskRelationship(db: D1Database, mutation: TaskRelati
       throw new ContractError("invalid_request", "The task project is unchanged.");
     }
     if (mutation.payload.project !== null) {
-      domain.push(db.prepare("INSERT INTO projects(id,space_id,name) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET name=excluded.name WHERE projects.space_id=excluded.space_id").bind(mutation.payload.project.id, task.space_id, mutation.payload.project.name));
+      const reference=await db.prepare("SELECT space_id,deleted_at,status FROM projects WHERE id=?1").bind(mutation.payload.project.id).first<{space_id:string,deleted_at:string|null,status:string}>();
+      if(reference&&(reference.space_id!==task.space_id||reference.deleted_at||reference.status==="archived"))throw new ContractError("parent_not_found","An unarchived project in the task Space is required.");
+      domain.push(db.prepare("INSERT INTO projects(id,space_id,name) VALUES(?1,?2,?3) ON CONFLICT(id) DO NOTHING").bind(mutation.payload.project.id, task.space_id, mutation.payload.project.name));
     }
     domain.push(db.prepare("UPDATE tasks SET project_id=?1,entity_version=?2 WHERE id=?3 AND entity_version=?4").bind(mutation.payload.project?.id ?? null,version,mutation.entityId,task.entity_version));
     changeOperation="task.projectSet"; payload={task:{id:mutation.entityId,projectId:mutation.payload.project?.id ?? null,project:mutation.payload.project}};
   } else if (mutation.operation === "task.move") {
+    const reference=await db.prepare("SELECT deleted_at,is_archived FROM spaces WHERE id=?1").bind(mutation.payload.space.id).first<{deleted_at:string|null,is_archived:number}>();
+    if(reference&&(reference.deleted_at||reference.is_archived))throw new ContractError("parent_not_found","An active target Space is required.");
     if (task.space_id === mutation.payload.space.id) throw new ContractError("invalid_request", "The task is already in this Space.");
-    domain.push(db.prepare("INSERT INTO spaces(id,name,deleted_at) VALUES(?1,?2,NULL) ON CONFLICT(id) DO UPDATE SET name=excluded.name").bind(mutation.payload.space.id,mutation.payload.space.name));
+    domain.push(db.prepare("INSERT INTO spaces(id,name,deleted_at) VALUES(?1,?2,NULL) ON CONFLICT(id) DO NOTHING").bind(mutation.payload.space.id,mutation.payload.space.name));
     domain.push(db.prepare("UPDATE tasks SET space_id=?1,project_id=NULL,parent_id=NULL,entity_version=?2 WHERE id=?3 AND entity_version=?4").bind(mutation.payload.space.id,version,mutation.entityId,task.entity_version));
     changeOperation="task.moved"; payload={task:{id:mutation.entityId,spaceId:mutation.payload.space.id,space:mutation.payload.space,projectId:null,parentId:null}};
   } else if (mutation.operation === "task.addLabel") {
