@@ -36,6 +36,7 @@ export type ReadOnlyTask = {
   parentId: string | null;
   labels: { id: string; name: string }[];
   createdAt: string;
+  updatedAt: string | null;
   entityVersion: number;
   source: null | {
     integrationKind: string; sourceUrl: string | null; title: string; description: string | null;
@@ -82,6 +83,7 @@ type TaskRow = {
   source_deadline_at: string | null; source_recurrence_rule: string | null; source_refreshed_at: string | null;
   command: string | null; command_state: string | null; command_error_code: string | null; delivery_state:"reserved"|"started"|null;
   created_at: string;
+  updated_at: string | null;
   entity_version: number;
 };
 
@@ -98,7 +100,7 @@ export async function readTasks(
   const [result, spaces, projects, labels, state] = await db.batch([
     db.prepare(`
     SELECT tasks.id, tasks.title, tasks.space_id, tasks.completion_state,
-           tasks.workflow_status, tasks.priority, tasks.created_at, tasks.completed_at,
+           tasks.workflow_status, tasks.priority, tasks.created_at, tasks.updated_at, tasks.completed_at,
            tasks.planned_on, tasks.planned_at, tasks.notes, tasks.deadline_on,tasks.deadline_at,tasks.scheduled_start,tasks.scheduled_end,tasks.duration_minutes,tasks.recurrence_rule,
            tasks.project_id, tasks.parent_id, tasks.entity_version,
            COALESCE((SELECT json_group_array(json_object('id', labels.id, 'name', labels.name))
@@ -155,6 +157,7 @@ export async function readTasks(
       workflowStatus: requireWorkflowStatus(row.workflow_status),
       priority: requirePriority(row.priority),
       createdAt: row.created_at,
+      updatedAt: row.updated_at,
       completedAt: requireCompletedAt(row.completion_state, row.completed_at),
       plannedOn: row.planned_on,
       plannedAt: row.planned_at,

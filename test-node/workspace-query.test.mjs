@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { formatTaskGroupDate } from '../public/task-presentation.js';
 import { ALL_SPACES, resolveSpace, creationSpace, queryTasks, matchesView, taskComparator, groupTasks, localDate, plannedEdit, searchWorkspace } from "../public/workspace-query.js";
 
 const spaces = [{ id: "space_default", name: "Personal" }, { id: "space_other", name: "Work" }];
@@ -62,7 +63,7 @@ test("grouping uses every label and keeps same-named projects/labels separate by
 
 test("date groups prefer planned dates; priority and completed grouping follow Desktop ordering", () => {
   const timed = task("timed", { plannedAt: "2026-10-14T12:00:00Z", deadlineOn: "2026-10-01" });
-  assert.equal(groupTasks([timed], "date")[0][0], localDate(new Date(timed.plannedAt)));
+  assert.equal(groupTasks([timed], "date")[0][0], formatTaskGroupDate(timed.plannedAt));
   assert.deepEqual(groupTasks([task("low",{priority:4}),task("urgent",{priority:1})],"priority").map(group=>group[0]),["Urgent","Low"]);
   assert.equal(groupTasks([task("done",{completionState:"completed",workflowStatus:"next"})],"status")[0][0],"Completed");
   assert.deepEqual(groupTasks([task("old",{completedAt:"2026-10-01T12:00:00Z"}),task("new",{completedAt:"2026-10-02T12:00:00Z"})],"completed").map(group=>group[1][0].id),["new","old"]);

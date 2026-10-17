@@ -1,3 +1,4 @@
+import { formatTaskGroupDate } from './task-presentation.js?v=parity-3';
 // '*' cannot be a protocol entity id. It is a view scope, never a mutation target.
 export const ALL_SPACES = "*";
 
@@ -132,7 +133,7 @@ export function taskComparator(mode, direction = "default") {
 export function groupTasks(tasks, mode, projects = []) {
   if (mode === "none") return [["", tasks, ""]];
   const groups = new Map();
-  const dateGroup = (date, prefix, reverse=false) => date ? {key:prefix+":"+localDate(date),name:localDate(date),sort:(reverse?-1:1)*date.valueOf()} : {key:prefix+":none",name:prefix==="completed"?"No completed date":"No date",sort:Infinity};
+  const dateGroup = (date, prefix, reverse=false) => date ? {key:prefix+":"+localDate(date),name:formatTaskGroupDate(date),sort:(reverse?-1:1)*date.valueOf()} : {key:prefix+":none",name:prefix==="completed"?"No completed date":"No date",sort:Infinity};
   for (const task of tasks) {
     let assignments;
     if (mode === "date") assignments = [dateGroup(taskDates(task)[0], "date")];

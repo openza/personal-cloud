@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {createWorkspaceControls,connectedCatalogItems,eligibleCatalogItems} from '../public/workspace-controls.js';
+import {createWorkspaceControls} from '../public/workspace-controls.js';
 
 class Node {
  value='';checked=false;hidden=false;children=[];handlers={};options=[];open=true;attributes={};classes=new Set();
@@ -40,13 +40,20 @@ test('All Spaces project creation prefers the default Space; overview editing re
  nodes.get('#create-project').handlers.click();assert.equal(nodes.get('#reference-space').value,'space_default');
  nodes.get('#reference-cancel').handlers.click();assert.equal(nodes.get('#workspace-dialog').open,true);assert.equal(nodes.get('#reference-form').hidden,true);assert.equal(nodes.get('#workspace-dialog-title').textContent,'Manage workspace');
 }));
-function catalogFixture(){const item=(id,fields={})=>({id,bridgeDeviceId:'bridge',isSkipped:false,available:true,adoptedTaskId:null,source:{title:'Task '+id,integrationKind:id==='two'?'microsoft-todo':'todoist',projectName:id==='two'?'Second':'First'},...fields});return{protocolVersion:1,product:'tasks',instanceId:'local',scopes:[],catalog:[item('one'),item('two'),item('skip',{isSkipped:true}),item('missing',{available:false}),item('pending'),item('adopted',{adoptedTaskId:'task'})],intents:[{id:'existing',action:'adopt',catalogId:'pending',state:'uncertain'}],routes:[]};}
-test('connected filters search/source/project are presentation only; bulk eligibility excludes unavailable/skipped/adopted/unresolved',()=>{
- const catalog=catalogFixture();assert.deepEqual(connectedCatalogItems(catalog,{source:'microsoft-todo'}).map(i=>i.id),['two']);assert.deepEqual(connectedCatalogItems(catalog,{search:'Task two',project:JSON.stringify('Second')}).map(i=>i.id),['two']);assert.equal(connectedCatalogItems(catalog,{showSkipped:true}).some(i=>i.id==='skip'),true);assert.deepEqual(eligibleCatalogItems(catalog).map(i=>i.id),['one','two']);
-});
-for(const failSecond of [false,true])test(`Add all queues individual owned intents across hidden filters and reports ${failSecond?'partial failure':'pending confirmation'}`,()=>setup(async nodes=>{
- const data=catalogFixture(),sent=[],payload={spaces:[{id:'space_default',name:'Inbox'},{id:'studio',name:'Studio'}],projects:[]};
- createWorkspaceControls({getState:()=>({payload,selectedSpaceId:'studio',editable:true,supported:true,instanceId:'local',scopedRouting:false}),api:async()=>data,sendMutation:async(id,_version,operation,payload)=>{if(failSecond&&sent.length===1)throw new Error('Synthetic network failure');sent.push({id,operation,intent:payload.intent});data.intents.push({id,...payload.intent,state:'pending_desktop'});},refresh:async()=>{},selectSpace(){}});
- await nodes.get('#manage-workspace').handlers.click();nodes.get('#connected-search').value='Nothing visible';nodes.get('#connected-source').value='microsoft-todo';nodes.get('#connected-source').handlers.change();assert.equal(nodes.get('#adopt-all-connected').disabled,false);
- await nodes.get('#adopt-all-connected').handlers.click();assert.equal(sent.length,failSecond?1:2);assert.equal(sent[0].intent.catalogId,'one');assert.ok(sent.every(s=>s.operation==='provider.intent.request'&&s.intent.spaceId==='studio'&&s.intent.action==='adopt'));if(!failSecond)assert.equal(sent[1].intent.catalogId,'two');const notice=nodes.get('#workspace-message').textContent;assert.match(notice,new RegExp(`${failSecond?1:2} of 2 adoption requests saved`));assert.match(notice,/provider success is not confirmed/);if(failSecond)assert.match(notice,/Synthetic network failure/);assert.equal(nodes.get('#adopt-all-connected').disabled,!failSecond);
+test('Manage workspace edits shared references without requesting a provider catalog',()=>setup(async nodes=>{
+ const payload={spaces:[{id:'space_default',name:'Inbox'}],projects:[]},sent=[];
+ createWorkspaceControls({getState:()=>({payload,selectedSpaceId:'space_default',editable:true,supported:true}),sendMutation:async(...args)=>sent.push(args),refresh:async()=>{}});
+ await nodes.get('#manage-workspace').handlers.click();
+ assert.equal(nodes.get('#workspace-dialog').open,true);
+ assert.equal(nodes.get('#workspace-message').textContent,'');
+ assert.equal(nodes.has('#connected-list'),false);
+ assert.equal(nodes.has('#routing-form'),false);
+ nodes.get('#create-space').handlers.click();nodes.get('#reference-name').value='Shared Space';
+ await nodes.get('#reference-form').handlers.submit({preventDefault(){}});
+ // Event handlers start asynchronous mutations; wait for the save to settle.
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(sent.length,1);assert.equal(sent[0][2],'space.put');
+ assert.equal(sent[0][3].space.name,'Shared Space');
+ assert.equal(nodes.get('#settings-create-space').disabled,false);
+ assert.equal(nodes.get('#settings-spaces').children[0].disabled,false);
 }));

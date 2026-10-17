@@ -71,7 +71,7 @@ export default {
       if (request.method === "GET" && url.pathname === "/health") {
         if (url.search !== "") throw new ContractError("invalid_request", "Health does not accept query parameters.");
         return noStoreJson({ status: "ok", protocolVersion: 1, product: "tasks", artifactVersion: env.ARTIFACT_VERSION,
-          schemaVersion: 24, capabilities: { mutationBatch: mutationBatchCapability, workspace:workspaceCapability,providerCatalog:providerCatalogCapability,workspacePaging:workspacePagingCapability } });
+          schemaVersion: 25, capabilities: { mutationBatch: mutationBatchCapability, workspace:workspaceCapability,providerCatalog:providerCatalogCapability,workspacePaging:workspacePagingCapability } });
       }
       if (request.method === "GET" && url.pathname === "/auth/status") {
         return noStoreJson(await authStatus(env.DB));

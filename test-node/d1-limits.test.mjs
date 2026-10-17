@@ -21,7 +21,7 @@ for count in [300,405,420,500]:
  db.execute('DELETE FROM tasks')
  db.executemany("INSERT INTO tasks(id,product,space_id,project_id,title,completion_state,workflow_status,created_at,entity_version,created_by_mutation_id,notes) VALUES(?,'tasks','space_default','project.limit','Synthetic','open','inbox','2026-10-15T00:00:00.000Z',1,?,?)",[(f'task.limit.{n}',f'mutation.limit.{n}','x'*4096) for n in range(count)])
  sample=json.loads(db.execute('SELECT '+data['taskJson']+' FROM tasks t LIMIT 1').fetchone()[0])
- assert len(sample)==24 and sample['source'] is None and sample['deadlineAt'] is None
+ assert len(sample)==25 and sample['source'] is None and sample['deadlineAt'] is None
  db.execute('BEGIN')
  try:
   db.execute("UPDATE tasks SET project_id=NULL,workflow_status='inbox',entity_version=entity_version+1")
@@ -41,6 +41,6 @@ assert any(x['outcome']=='accepted' for x in results)
 assert any(x['outcome']=='workspace response too large' for x in results)
 assert any(x['outcome']=='SQLITE_TOOBIG' for x in results)
 `;
- const result=spawnSync('uv',['run','--no-project','--no-python-downloads','--python','/usr/bin/python3','python','-c',script],{input:JSON.stringify(input),encoding:'utf8',maxBuffer:2*1024*1024});
+ const result=spawnSync('uv',['run','--no-project','--no-python-downloads','--python',process.platform==='win32'?'3':'/usr/bin/python3','python','-c',script],{input:JSON.stringify(input),encoding:'utf8',maxBuffer:2*1024*1024});
  assert.equal(result.status,0,result.stderr);const evidence=JSON.parse(result.stdout);assert.equal(evidence.length,4);process.stdout.write(JSON.stringify(evidence)+'\n');
 });

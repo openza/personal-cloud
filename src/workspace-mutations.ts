@@ -1,7 +1,7 @@
 import {ContractError,canonicalize,computeCanonicalHash} from './protocol.ts';
 import {findReceipt,duplicateOrReuse,toReceipt} from './mutation-receipt.ts';
 import {taskFieldColumns,type WorkspaceMutation} from './workspace-protocol.ts';
-import {spaceJson,projectJson,taskJson,scopeJson,catalogJson,intentJson,routeJson,arraySql} from './workspace-records.ts';
+import {spaceJson,projectJson,taskRecordJson,scopeJson,catalogJson,intentJson,routeJson,arraySql} from './workspace-records.ts';
 import {assertSourceOwnership,sourceOwnershipCondition,sourceOwnershipValues} from './source-ownership.ts';
 
 export async function applyWorkspaceMutation(db:D1Database,m:WorkspaceMutation,raw:string,options:{failBeforeReceipt?:boolean}={}){
@@ -73,7 +73,7 @@ export async function applyWorkspaceMutation(db:D1Database,m:WorkspaceMutation,r
    domain.push(db.prepare('UPDATE provider_intents SET state=?1,adopted_task_id=?2,error_code=?3,entity_version=?4,updated_at=?5 WHERE id=?6').bind(p.state,p.adoptedTaskId,p.errorCode,version,now,m.entityId));
   }out.intents='i.id=?1';
  }
- const arrays=[['spaces','spaces s',spaceJson],['projects','projects p',projectJson],['tasks','tasks t',taskJson],['scopes','provider_scopes sc',scopeJson],['catalog','provider_catalog c',catalogJson],['intents','provider_intents i',intentJson],['routes','provider_routes r',routeJson]] as const;
+ const arrays=[['spaces','spaces s',spaceJson],['projects','projects p',projectJson],['tasks','tasks t',taskRecordJson('?4')],['scopes','provider_scopes sc',scopeJson],['catalog','provider_catalog c',catalogJson],['intents','provider_intents i',intentJson],['routes','provider_routes r',routeJson]] as const;
  // Always bind both entity and mutation IDs; unused ?2 still participates through the final no-op expression.
  const payloadSql=`json_object(${arrays.map(([key,table,expr])=>`'${key}',json(${arraySql(table,expr,out[key])})`).join(',')})`;
  const statements=[db.prepare('INSERT INTO device_sequence_claims(device_id,device_sequence,mutation_id) VALUES(?1,?2,?3)').bind(m.deviceId,m.deviceSequence,m.mutationId),...guards,...domain,

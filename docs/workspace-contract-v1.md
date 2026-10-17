@@ -1,18 +1,18 @@
-# Additive workspace contract v1 (schema 24)
+# Additive workspace contract v1 (schema 25)
 
-Source-only Cloud/Desktop coordination contract. Schema 24 contains migrations
+Source-only Cloud/Desktop coordination contract. Schema 25 contains migrations
 21 (initial status), 22 (history indexes / optional ordered batches), and
 23 (workspace metadata / provider catalog and intents), and24 (indexed source
-ownership, signed bootstrap cursors and compound response bound). Protocol remains1.
+ownership, signed bootstrap cursors and compound response bound), and 25 (authoritative task modification timestamps). Protocol remains1.
 No deployment, live provider, installed-app, or production access is authorized.
 
 ## Negotiation and compatibility
 
-`GET /health` returns schemaVersion 24 and existing
+`GET /health` returns schemaVersion 25 and existing
 `mutationBatch` capabilities plus
-`workspace:{protocolVersion:1,path:"/v1/tasks/mutations",schemaVersion:24}` and
+`workspace:{protocolVersion:1,path:"/v1/tasks/mutations",schemaVersion:25}` and
 `providerCatalog:{protocolVersion:2,path:"/v1/provider/catalog",intentsPath:"/v1/provider/intents"}`.
-Desktop accepts supported old schemas17–24. Negotiate the optional bounded
+Desktop accepts supported old schemas17–25. Negotiate the optional bounded
 `workspacePaging` capability using [Workspace paging v1](workspace-paging-v1.md).
 Missing workspace capability
 uses old operations and does not send new envelopes. Schema 23 changes are
@@ -157,8 +157,11 @@ budget for new max2 batches; source-secret scan and dry manifest verification.
 
 All `workspace.changed.payload.tasks` entries are **complete flattened task
 snapshots**, not `{fields:...}` wrappers. Affected task rows (including all moved
-descendants and project-delete tasks) carry every key below. There is no task
-`updatedAt` key. Missing new values from legacy migrated rows are explicit null.
+descendants and project-delete tasks) carry every key below. Schema 25 includes a nullable task
+`updatedAt` key containing its accepted server modification time. Desktop accepts
+older snapshots without that key; explicit null means historical time is unknown.
+Migration 25 backfills surviving change history, and keeps the value independently
+of later compaction. Missing new values from legacy migrated rows are explicit null.
 Source facts are kept in `source`; local recurrenceRule is separate and source
 recurrence is never written by task.patch. Provider source title is immutable.
 Desktop must keep provider recurrence in the descriptor, not overwrite a local
@@ -171,6 +174,7 @@ recurrence overlay when refreshing provider snapshots.
  "plannedOn":null,"plannedAt":null,"deadlineOn":null,"deadlineAt":null,
  "scheduledStart":null,"scheduledEnd":null,"durationMinutes":null,"recurrenceRule":null,
  "notes":null,"completedAt":null,"createdAt":"2026-10-13T00:00:00.000Z",
+ "updatedAt":"2026-10-13T00:00:00.000Z",
  "entityVersion":1,"deletedAt":null,"labels":[],"source":null,"sourceOwnerDeviceId":null
 }
 ```

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
-import {taskTextError} from "../public/task-presentation.js";
+import {taskTextError,taskSaveError} from "../public/task-presentation.js";
 
 const source = readFileSync(new URL("../public/app.js",import.meta.url),"utf8");
 const workspaceStateKey = "workspace";
@@ -12,9 +12,11 @@ class Select {
 }
 function setup() {
   const nodes=new Map(controlIds.map(id=>[id,new Select(id==="sort-select"?["priority","date","created","title","project"]:id==="sort-direction"?["default","reverse"]:id==="group-select"?["none","date","project","completed","label"]:["","selected"])]));
+  nodes.set("details-save-status",{textContent:"",hasAttribute(){return false;}});
+  nodes.set("details-conflict-actions",{hidden:true,hasAttribute(){return false;}});
   const local=new Map(),session=new Map();
   const storage=map=>({getItem:key=>map.get(key)||null,setItem:(key,value)=>map.set(key,value)});
-  const context=vm.createContext({taskTextError,TextEncoder,clearDialogError(){},workspaceStateKey,controlIds,localStorage:storage(local),sessionStorage:storage(session),selectedSpaceId:"*",selectedProjectId:null,currentView:"all",viewCopySafe:{all:1,inbox:1,completed:1,search:1},restoredControls:{},detailBaseline:{},detailTaskBaseline:null,detailTaskUnavailable:false,viewPreferences:{},sharedGroups:{},HTMLSelectElement:Select,document:{getElementById:id=>nodes.get(id)},$:selector=>nodes.get(selector.slice(1))});
+  const context=vm.createContext({collapsedGroups:new Set(),taskTextError,taskSaveError,detailAutosave:{cancel(){}},TextEncoder,clearDialogError(){},workspaceStateKey,controlIds,localStorage:storage(local),sessionStorage:storage(session),selectedSpaceId:"*",selectedProjectId:null,currentView:"all",viewCopySafe:{all:1,inbox:1,completed:1,search:1},restoredControls:{},detailBaseline:{},detailTaskBaseline:null,detailTaskUnavailable:false,viewPreferences:{},sharedGroups:{},HTMLSelectElement:Select,document:{getElementById:id=>nodes.get(id)},$:selector=>nodes.get(selector.slice(1))});
   for(const name of ["contextKey","applyContextPreferences","persistWorkspaceState","restoreWorkspaceState","readDetailFields","captureDetailDraft","restoreDetailDraft"]) vm.runInContext(source.match(new RegExp(`^function ${name}\\(.*$`,"m"))[0],context);
   return {context,nodes,local,session};
 }
@@ -25,6 +27,15 @@ test("preferences persist by Space/view/project; Tasks and project grouping is s
   context.currentView="all";context.selectedProjectId="project_a";context.applyContextPreferences();assert.equal(nodes.get("group-select").value,"label");
   context.selectedProjectId=null;context.applyContextPreferences();assert.equal(nodes.get("sort-select").value,"date");
   assert.equal(JSON.parse(local.get(workspaceStateKey)).spaceId,"*");
+});
+
+test("collapsed task groups survive reload and are isolated by view context", () => {
+  const {context,local}=setup();context.collapsedGroups.add('project:launch');context.persistWorkspaceState();
+  context.collapsedGroups.clear();context.restoreWorkspaceState();
+  assert.equal(context.collapsedGroups.has('project:launch'),true);
+  context.currentView='inbox';context.applyContextPreferences();assert.equal(context.collapsedGroups.size,0);
+  context.currentView='all';context.applyContextPreferences();assert.equal(context.collapsedGroups.has('project:launch'),true);
+  assert.deepEqual(JSON.parse(local.get(workspaceStateKey)).viewPreferences['*|view:all'].collapsedGroups,['project:launch']);
 });
 
 test("restore migrates legacy session preferences and delays dynamic reference selections", () => {

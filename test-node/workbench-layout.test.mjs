@@ -36,7 +36,7 @@ test('one-time view request is consumed so reload preserves subsequent project s
 });
 test('dirty close defers navigation; clean close retains caller context; pending edits cannot leave',()=>{
  let dirty=true,busy=false,closed=0,prompted=0,navigated=0;
- const context=vm.createContext({detailsDialog:{open:true,classList:{contains:()=>busy},close(){this.open=false;closed++;}},detailLabelBusy:false,pendingDetailsAction:null,captureDetailDraft:()=>dirty?{notes:'draft'}:{},$:()=>({showModal(){prompted++;}})});
+ const context=vm.createContext({detailsDialog:{open:true,classList:{contains:()=>busy},close(){this.open=false;closed++;}},detailAutosave:{cancel(){}},detailLabelBusy:false,pendingDetailsAction:null,captureDetailDraft:()=>dirty?{notes:'draft'}:{},$:()=>({showModal(){prompted++;}})});
  vm.runInContext(source.match(/^function requestDetailsClose\(.*$/m)[0],context);
  context.requestDetailsClose(()=>navigated++);assert.equal(prompted,1);assert.equal(closed,0);assert.equal(navigated,0);assert.equal(typeof context.pendingDetailsAction,'function');
  dirty=false;busy=true;context.requestDetailsClose(()=>navigated++);assert.equal(closed,0);
