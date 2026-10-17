@@ -4,8 +4,10 @@
   "type": "module",
   "scripts": {
     "build:artifact": "node scripts/build-artifact.mjs",
+    "prepare:restore": "node scripts/prepare-cloud-restore.mjs",
+    "test:restore": "node --test test-node/cloud-restore.test.mjs",
     "test": "WRANGLER_LOG_PATH=/tmp/openza-personal-cloud-k2-wrangler.log vitest run",
-    "test:rebootstrap": "NODE_NO_WARNINGS=1 node --experimental-transform-types --test test-node/prepare-owner-rebootstrap.test.mjs test-node/emergency-bootstrap.test.mjs",
+    "test:rebootstrap": "node --test test-node/prepare-owner-rebootstrap.test.mjs test-node/emergency-bootstrap.test.mjs",
     "test:web": "node --test test-node/presentation-parity.test.mjs test-node/row-actions.test.mjs test-node/task-pages.test.mjs test-node/mutation-queue.test.mjs test-node/provider-status.test.mjs test-node/workspace-query.test.mjs test-node/workspace-state.test.mjs test-node/workspace-controls.test.mjs test-node/initial-sync-status.test.mjs test-node/web-syntax.test.mjs test-node/workbench-layout.test.mjs test-node/owner-api.test.mjs test-node/search-lifecycle.test.mjs test-node/completion-features.test.mjs",
     "typecheck": "tsc --noEmit",
     "test:d1-limits": "node --test test-node/d1-limits.test.mjs",

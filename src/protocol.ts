@@ -248,11 +248,14 @@ export type CheckpointAcknowledgement = {
 };
 
 export class ContractError extends Error {
+  public readonly code: string;
+
   constructor(
-    public readonly code: string,
+    code: string,
     message: string,
   ) {
     super(message);
+    this.code = code;
   }
 }
 
@@ -839,8 +842,9 @@ export function parseStrictJson(json: string): JsonValue {
 
 class StrictJsonParser {
   private offset = 0;
+  private readonly source: string;
 
-  constructor(private readonly source: string) {}
+  constructor(source: string) { this.source = source; }
 
   parse(): JsonValue {
     const value = this.parseValue();
