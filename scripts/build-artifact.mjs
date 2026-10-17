@@ -33,8 +33,12 @@ await mkdir(join(output, "migrations"), { recursive: true });
 await cp(join(bundle, "index.js"), join(output, "worker.js"));
 for (const name of await readdir(join(root, "public")))
   await cp(join(root, "public", name), join(output, "assets", name), { recursive: true });
-for (const name of (await readdir(join(root, "migrations"))).filter(name => name.endsWith(".sql")).sort())
-  await cp(join(root, "migrations", name), join(output, "migrations", name));
+for (const name of (await readdir(join(root, "migrations"))).filter(name => name.endsWith(".sql")).sort()) {
+  // Migration hashes are persisted in D1. Windows checkout line endings must
+  // not make an unchanged migration look different from a Linux release.
+  const sql = (await readFile(join(root, "migrations", name), "utf8")).replaceAll("\r\n", "\n");
+  await writeFile(join(output, "migrations", name), sql, "utf8");
+}
 
 const configuration = JSON.parse(await readFile(join(root, "wrangler.jsonc"), "utf8"));
 const files = [];
