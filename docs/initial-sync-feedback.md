@@ -1,6 +1,6 @@
 # Initial Desktop upload feedback
 
-This optional protocol describes only the initial Desktop upload. It does not measure provider delivery, ongoing sync, or task-list freshness. Migration `0021_initial_sync_status.sql` adds one latest report per paired desktop; migration22 adds source-history indexes and optional mutation-batch capability. The combined workspace candidate adds migrations23–24 and reports schema24; see [workspace contract](workspace-contract-v1.md) and [optional bounded paging](workspace-paging-v1.md). This source change does not update any Desktop artifact pin, publish a release, apply a remote migration, or deploy a cloud.
+This optional protocol describes only the initial Desktop upload. It does not measure provider delivery, ongoing sync, or task-list freshness. Migration `0021_initial_sync_status.sql` adds one latest report per paired desktop; migration 22 adds source-history indexes and optional mutation-batch capability. The combined workspace candidate adds migrations 23–25 and reports schema 25; see [workspace contract](workspace-contract-v1.md) and [optional bounded paging](workspace-paging-v1.md). This source change does not update any Desktop artifact pin, publish a release, apply a remote migration, or deploy a cloud.
 
 ## Report
 

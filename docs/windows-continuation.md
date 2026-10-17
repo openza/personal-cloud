@@ -57,9 +57,10 @@ instructions, not a claim that the Windows checks have already passed.
 
 ## Run a fresh, local-only Worker
 
-The current source advertises schema 24. Keep all ordered migrations through
-`0024_source_identity_lookup.sql`; migrations 21-22 add initial-upload status and
-history indexes, and 23-24 add the combined workspace and source-identity support.
+The current source advertises schema 25. Keep all ordered migrations through
+`0025_task_updated_at.sql`; migrations 21-22 add initial-upload status and
+history indexes, 23-24 add the combined workspace and source-identity support,
+and 25 retains authoritative task modification times.
 Use the checked-in local configuration and a new disposable persistence directory:
 
 ```powershell
@@ -80,9 +81,9 @@ operational logs. Recreate disposable Windows fixtures instead of copying a live
 profile or credentials. The previous audit's synthetic session facades shared a
 numbered fixture pool, so that audit does not prove independent-session isolation.
 
-## Recorded acceptance and remaining checks
+## Historical Ubuntu acceptance and remaining checks at handoff
 
-Before this handoff, the unchanged reviewed source passed 109 Web tests,
+Before the original Ubuntu handoff, the then-current reviewed source passed 109 Web tests,
 17 focused Worker delivery/auth tests, five Worker shell tests, TypeScript
 checking and diff checks. The unchanged backend retained its earlier full
 153-test / 28-file result. The final independent correction review passed

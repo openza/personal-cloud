@@ -42,6 +42,9 @@ must become read only. Remove the file and refresh; editing must resume.
 This simulates a service interruption, not OS-level network loss.
 
 Run `npm run test:web`, `npm run typecheck`, `npx vitest run`, and
-`npm run test:d1-limits` for the corresponding automated checks. Real external
+`npm run test:d1-limits` and `npm run test:migrations` for the corresponding automated checks.
+The D1 limits probe uses `uv` to select Python 3.11 or newer. The migration check
+upgrades a populated schema 22 database and verifies retained receipts and foreign keys.
+Real external
 accounts and native Linux accessibility/scaling need their own platform runs;
 synthetic acceptance must not be described as those checks.

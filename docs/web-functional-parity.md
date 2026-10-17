@@ -177,7 +177,7 @@ production or real-provider acceptance.
 The subsequent local UI completion pass adds deterministic checks for shared
 commands, current-draft copy, local validation, archived navigation/group captions,
 editor concurrency, and connected filtering/bulk-request partial failure. Its
-current Web suite has109 passing tests, with current typecheck/diff checks passing.
+then-current Web suite had 109 passing tests, with typecheck/diff checks passing.
 Correction regressions cover remote writes before/during label refresh, causal
 own-label version advancement, and Create and open across delayed reads or
 post-acceptance refresh/session-rotation failures without duplicate creation.

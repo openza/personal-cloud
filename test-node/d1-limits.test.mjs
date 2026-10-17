@@ -41,6 +41,6 @@ assert any(x['outcome']=='accepted' for x in results)
 assert any(x['outcome']=='workspace response too large' for x in results)
 assert any(x['outcome']=='SQLITE_TOOBIG' for x in results)
 `;
- const result=spawnSync('uv',['run','--no-project','--no-python-downloads','--python',process.platform==='win32'?'3':'/usr/bin/python3','python','-c',script],{input:JSON.stringify(input),encoding:'utf8',maxBuffer:2*1024*1024});
- assert.equal(result.status,0,result.stderr);const evidence=JSON.parse(result.stdout);assert.equal(evidence.length,4);process.stdout.write(JSON.stringify(evidence)+'\n');
+ const result=spawnSync('uv',['run','--no-project','--python','>=3.11','python','-c',script],{input:JSON.stringify(input),encoding:'utf8',maxBuffer:2*1024*1024});
+ assert.ifError(result.error);assert.equal(result.status,0,result.stderr);const evidence=JSON.parse(result.stdout);assert.equal(evidence.length,4);process.stdout.write(JSON.stringify(evidence)+'\n');
 });

@@ -32,9 +32,10 @@ export async function applyTaskCreate(
   }
 
   const space = await db.prepare(
-    "SELECT id FROM spaces WHERE id = ?1 AND deleted_at IS NULL",
-  ).bind(mutation.payload.task.spaceId).first<{ id: string }>();
+    "SELECT id,is_archived FROM spaces WHERE id = ?1 AND deleted_at IS NULL",
+  ).bind(mutation.payload.task.spaceId).first<{ id: string; is_archived: number }>();
   if (!space) throw new ContractError("parent_not_found", "The task Space does not exist.");
+  if (space.is_archived) throw new ContractError("invalid_request", "An active target Space is required.");
 
   const existingTask = await db.prepare("SELECT id FROM tasks WHERE id = ?1")
     .bind(mutation.entityId)
@@ -117,6 +118,7 @@ export async function applyTaskCreate(
     if ((racedSequence?.last_sequence ?? 0) + 1 !== mutation.deviceSequence) {
       throw new ContractError("sequence_gap", "The device sequence is not the next expected value.");
     }
+    if(String(error).includes('active target Space required')||String(error).includes('active target project required'))throw new ContractError('invalid_request','An active target Space and unarchived project are required.');
     if(String(error).includes('workspace_guards')||String(error).includes('CHECK constraint failed: valid=1'))throw new ContractError('source_identity_conflict','Source ownership changed; refresh and retry.');
     throw error;
   }

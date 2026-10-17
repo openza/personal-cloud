@@ -1,12 +1,12 @@
 # Optional ordered mutation batches
 
-Schema22 introduced `capabilities.mutationBatch`; the combined workspace candidate reports schema24 with the same optional capability:
+Schema 22 introduced `capabilities.mutationBatch`; the combined workspace candidate reports schema 25 with the same optional capability:
 
 ```json
 {"protocolVersion":1,"path":"/v1/tasks/mutations/batch","maxMutations":2,"maxRequestUtf8Bytes":16384}
 ```
 
-Clients negotiate this capability; missing capability uses the existing single `POST /v1/tasks/mutations`. Old clients can continue using the single endpoint. Desktop health verification accepts23 while retaining supported17–22 schemas before using this cloud candidate. Workspace records have separate negotiation requirements in the [workspace contract](workspace-contract-v1.md). No deployment or artifact pin is changed by this source change.
+Clients negotiate this capability; missing capability uses the existing single `POST /v1/tasks/mutations`. Old clients can continue using the single endpoint. Desktop health verification accepts schemas 17–25 before using this cloud candidate. Workspace records have separate negotiation requirements in the [workspace contract](workspace-contract-v1.md). No deployment or artifact pin is changed by this source change.
 
 `POST /v1/tasks/mutations/batch` accepts only a device Bearer token and no query parameters:
 

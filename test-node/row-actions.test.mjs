@@ -30,6 +30,15 @@ test('row commands target the task inspector, separate repeated label groups and
 });
 
 const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
+for(const rejected of [false,true])test(`repeated completion is ignored until mutation and refresh settle (${rejected?'rejected':'accepted'})`,async()=>{
+  let resolveWrite,resolveRefresh,writes=0,notices=0;const states=[],completionInFlight=new Set();
+  const context=vm.createContext({currentEditable:true,completionInFlight,refreshCompletionButtons:id=>states.push([id,completionInFlight.has(id)]),sendMutation:()=>{writes++;return new Promise(resolve=>{resolveWrite=resolve;});},finishMutations:()=>new Promise((resolve,reject)=>{resolveRefresh=()=>rejected?reject(new Error('Synthetic failure')):resolve();}),setNotice:()=>notices++,setStatus(){}});
+  vm.runInContext(source.match(/^async function toggleCompletion\(.*$/m)[0],context);
+  const task={id:'task_a',entityVersion:1,completionState:'open'},first=context.toggleCompletion(task);
+  await context.toggleCompletion(task);assert.equal(writes,1);resolveWrite();await new Promise(resolve=>setImmediate(resolve));
+  await context.toggleCompletion(task);assert.equal(writes,1);assert.equal(completionInFlight.has(task.id),true);
+  resolveRefresh();await first;assert.equal(completionInFlight.size,0);assert.equal(notices,rejected?1:0);assert.deepEqual(states,[['task_a',true],['task_a',false]]);
+});
 test('cancelling completion of a dirty selected task leaves its checkbox at the confirmed state',async()=>{
   const checkbox={checked:true};let writes=0,guarded=0;
   const context=vm.createContext({selectedTaskId:'task_a',currentPayload:{tasks:[{id:'task_a',completionState:'open'}]},$:()=>checkbox,requestDetailsClose:()=>{guarded++;},toggleCompletion:()=>{writes++;}});
