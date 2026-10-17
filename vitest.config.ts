@@ -18,7 +18,7 @@ export default defineConfig({
     })),
   ],
   test: {
-    exclude: ["test-node/**", "**/node_modules/**", "**/.git/**"],
+    exclude: [".wrangler/**", "dist/**", "artifacts/**", "test-node/**", "**/node_modules/**", "**/.git/**"],
     setupFiles: ["./test/apply-migrations.ts"],
   },
 });

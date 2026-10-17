@@ -17,7 +17,8 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
       protocolVersion: 1,
       product: "tasks",
       artifactVersion: "0.0.0-test",
-      schemaVersion: 20,
+      schemaVersion: 25,
+      capabilities:{mutationBatch:{protocolVersion:1,path:"/v1/tasks/mutations/batch",maxMutations:2,maxRequestUtf8Bytes:16384},workspace:{protocolVersion:1,path:"/v1/tasks/mutations",schemaVersion:25},providerCatalog:{protocolVersion:2,path:"/v1/provider/catalog",intentsPath:"/v1/provider/intents"},workspacePaging:{protocolVersion:1,bootstrapPath:"/sync/bootstrap",changesPath:"/sync/changes",maxResponseUtf8Bytes:2097152,maxPageRecords:100}},
     });
   });
 
@@ -84,8 +85,10 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(pageHtml).toContain("Next Actions");
     expect(pageHtml).toContain('id="task-dialog"');
     expect(pageHtml).toContain('id="details-dialog"');
-    expect(pageHtml).toContain('id="delivery-list"');
-    expect(pageHtml).toContain("stop it, revoke its access, and check the external provider");
+    expect(pageHtml).not.toContain('id="delivery-list"');
+    expect(pageHtml).toContain("Manage third-party accounts, task intake and routing in Openza Desktop.");
+    expect(pageHtml).not.toContain('id="workspace-connected"');
+    expect(pageHtml).not.toContain('id="workspace-routing"');
     expect(pageHtml).not.toContain(">Parent<");
     expect(pageHtml).not.toContain("Test-only local session");
 
@@ -99,9 +102,9 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(browserCode).toContain("60_000");
     expect(browserCode).toContain("retryRefreshMs=15_000");
     expect(browserCode).toContain("loadTasks({background:true})");
-    expect(browserCode).toContain("await readAllTasks(api)");
+    expect(browserCode).toContain("readAllTasks(api)");
     expect(browserCode).toContain("sessionStorage.getItem(workspaceStateKey)");
-    expect(browserCode).toContain("sessionStorage.setItem(workspaceStateKey");
+    expect(browserCode).toContain("localStorage.setItem(workspaceStateKey");
     expect(browserCode).toContain('api("/auth/session/rotate"');
     expect(browserCode).toContain("sessionRotationMs=10*60_000");
     expect(browserCode).toContain("navigator.credentials.create");
@@ -114,12 +117,12 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(browserCode).toContain("tasksPanel.hidden=false");
     expect(browserCode).toContain("moveTaskTree");
     expect(browserCode).toContain("providerDeliveryLabel(task.externalCommand)");
-    expect(browserCode).toContain("providerStateChecked:true");
-    expect(browserCode).toContain("button.disabled=!delivery.deviceRevokedAt");
+    expect(browserCode).not.toContain("/auth/provider-deliveries");
+    expect(browserCode).not.toContain("reconcileDelivery");
     expect(browserCode).not.toContain("prompt(");
     expect(browserCode).not.toContain("k5-local-read-only");
     expect(browserCode).not.toContain("x-openza-test-session");
-    for (const operation of ["task.updateOpenzaFields","task.complete","task.reopen","task.delete","task.setProject","task.move","task.addLabel","task.removeLabel","task.setParent"])
+    for (const operation of ["task.createRich","task.patch","task.moveTree","task.complete","task.reopen","task.delete","task.addLabel","task.removeLabel"])
       expect(browserCode).toContain(operation);
 
     expect(styles.status).toBe(200);

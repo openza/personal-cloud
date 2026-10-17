@@ -109,6 +109,15 @@ export async function requireDeviceAccess(
   db: D1Database,
   capability: "desktop_sync" | "provider_bridge",
 ): Promise<string> {
+  return requireDeviceCapabilities(request, db, [capability]);
+}
+
+// Batch operations authenticate once, then require every operation's scope.
+export async function requireDeviceCapabilities(
+  request: Request,
+  db: D1Database,
+  capabilities: ("desktop_sync" | "provider_bridge")[],
+): Promise<string> {
   const header = request.headers.get("authorization");
   if (!header?.startsWith("Bearer ") || header.length > 512) throw unauthorized();
   const token = header.slice(7);
@@ -117,7 +126,8 @@ export async function requireDeviceAccess(
     WHERE a.token_hash=?1 AND a.revoked_at IS NULL AND a.expires_at>?2 AND d.revoked_at IS NULL`)
     .bind(await hash(token), new Date().toISOString())
     .first<{ device_id: string; can_sync: number; can_bridge_provider: number }>();
-  if (!row || (capability === "desktop_sync" ? row.can_sync !== 1 : row.can_bridge_provider !== 1)) throw unauthorized();
+  if (!row || capabilities.length === 0 || capabilities.some(capability =>
+      capability === "desktop_sync" ? row.can_sync !== 1 : row.can_bridge_provider !== 1)) throw unauthorized();
   return row.device_id;
 }
 

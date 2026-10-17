@@ -1,3 +1,4 @@
+import {parseWorkspaceMutation,workspaceOperations,type WorkspaceMutation} from "./workspace-protocol.ts";
 export const protocolVersion = 1;
 export const tasksProduct = "tasks";
 const maximumIdentifierLength = 128;
@@ -236,7 +237,7 @@ export type TaskRelationshipMutation = {
 
 export type TaskMutation =
   TaskCreateMutation | TaskOpenzaFieldsMutation | TaskCompleteMutation | TaskReopenMutation | TaskDeleteMutation |
-  TaskRelationshipMutation | SourceRefreshMutation | ExternalCommandResultMutation;
+  TaskRelationshipMutation | SourceRefreshMutation | ExternalCommandResultMutation | WorkspaceMutation;
 
 export type CheckpointAcknowledgement = {
   protocolVersion: 1;
@@ -258,6 +259,7 @@ export class ContractError extends Error {
 export function parseTaskMutation(json: string, expectedInstanceId: string): TaskMutation {
   const value = new StrictJsonParser(json).parse();
   const mutation = requireObject(value, "mutation");
+  if (workspaceOperations.includes(mutation.operation as any)) return parseWorkspaceMutation(json, expectedInstanceId);
   if (mutation.operation === "task.create") return parseTaskCreateMutation(json, expectedInstanceId);
   if (mutation.operation === "task.updateOpenzaFields") {
     const payload = requireObject(mutation.payload, "payload");
@@ -528,7 +530,7 @@ export function parseTaskCreateMutation(json: string, expectedInstanceId: string
   return value as TaskCreateMutation;
 }
 
-function validateSafeSourceDescriptor(value: JsonValue | undefined): void {
+export function validateSafeSourceDescriptor(value: JsonValue | undefined): void {
   const source=requireObject(value,"payload.source");
   requireExactKeys(source,["integrationKind","externalIdHash","sourceUrl","title","description","projectName","priority","plannedOn","plannedAt","deadlineOn","deadlineAt","recurrenceRule","refreshedAt"]);
   if(typeof source.integrationKind!=="string"||source.integrationKind.length<1||source.integrationKind.length>64) fail("invalid_request","The source integration kind is invalid.");
@@ -538,6 +540,7 @@ function validateSafeSourceDescriptor(value: JsonValue | undefined): void {
   if(source.priority!==null&&(!Number.isSafeInteger(source.priority)||(source.priority as number)<1||(source.priority as number)>4)) fail("invalid_request","The source priority is invalid.");
   for(const key of ["plannedOn","deadlineOn"] as const) if(source[key]!==null) requireDate(source[key],`payload.source.${key}`);
   for(const key of ["plannedAt","deadlineAt"] as const) if(source[key]!==null) requireTimestamp(source[key],`payload.source.${key}`);
+  if(source.sourceUrl!==null){try{const url=new URL(source.sourceUrl as string);if(!["https:","http:"].includes(url.protocol)||url.username||url.password)throw new Error();}catch{fail("invalid_request","A source URL must be HTTP(S) without credentials.");}}
   requireTimestamp(source.refreshedAt,"payload.source.refreshedAt");
 }
 
