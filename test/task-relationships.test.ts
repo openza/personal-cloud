@@ -1,5 +1,7 @@
 import { env, exports } from "cloudflare:workers";
 import { expect, it } from "vitest";
+import { applyTaskRelationship } from "../src/task-relationships.ts";
+import { parseTaskRelationshipMutation } from "../src/protocol.ts";
 
 const taskId = "task.relationships";
 const timestamp = "2026-09-13T07:00:00.000Z";
@@ -105,3 +107,46 @@ it("reconstructs a desktop parent move by moving children before restoring their
   expect(await env.DB.prepare("SELECT space_id,parent_id,entity_version FROM tasks WHERE id=?1").bind(childId).first())
     .toEqual({space_id:"space.move.tree",parent_id:parentId,entity_version:3});
 });
+
+for (const kind of ["project", "space"] as const) for (const existing of [false, true]) {
+  it(`emits the stored ${kind} name for ${existing ? "stale existing" : "new"} legacy references and keeps replay immutable`, async () => {
+    const suffix=existing?"existing":"new",id=`task.names.${kind}.${suffix}`,referenceId=`${kind}.names.${suffix}`,device=`device.names.${kind}.${suffix}`,table=kind==="project"?"projects":"spaces";
+    expect((await post(mutation(device,`${device}.create`,1,"task.create",id,null,
+      {task:{id,spaceId:"space_default",title:"Reference names",completionState:"open",workflowStatus:"inbox",createdAt:timestamp}}))).status).toBe(201);
+    if(existing) await env.DB.prepare(kind==="project"?"INSERT INTO projects(id,space_id,name) VALUES(?1,'space_default','Stored current name')":"INSERT INTO spaces(id,name) VALUES(?1,'Stored current name')").bind(referenceId).run();
+    const raw=mutation(device,`${device}.set`,2,kind==="project"?"task.setProject":"task.move",id,1,{[kind]:{id:referenceId,name:"Incoming name"}});
+    const response=await post(raw),receipt=await response.json() as any;expect(response.status).toBe(201);
+    const change=await env.DB.prepare("SELECT payload_json FROM changes WHERE change_seq=?1").bind(receipt.changeSeq).first<{payload_json:string}>();
+    const payload=JSON.parse(change!.payload_json),expectedName=existing?"Stored current name":"Incoming name";
+    expect(payload).toEqual({task:kind==="project"?{id,projectId:referenceId,project:{id:referenceId,name:expectedName}}:{id,spaceId:referenceId,space:{id:referenceId,name:expectedName},projectId:null,parentId:null}});
+    expect(await env.DB.prepare(`SELECT name FROM ${table} WHERE id=?1`).bind(referenceId).first()).toEqual({name:expectedName});
+    const storedReceipt=await env.DB.prepare("SELECT canonical_request,canonical_hash FROM mutation_receipts WHERE mutation_id=?1").bind(receipt.mutationId).first<{canonical_request:string,canonical_hash:string}>();
+    expect(JSON.parse(storedReceipt!.canonical_request).payload[kind].name).toBe("Incoming name");
+    await env.DB.prepare(`UPDATE ${table} SET name='Later name' WHERE id=?1`).bind(referenceId).run();
+    const replay=await post(raw);expect(replay.status).toBe(200);expect(await replay.json()).toEqual({...receipt,outcome:"duplicate"});
+    expect(await env.DB.prepare("SELECT payload_json FROM changes WHERE change_seq=?1").bind(receipt.changeSeq).first()).toEqual(change);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM changes WHERE mutation_id=?1").bind(receipt.mutationId).first()).toEqual({count:1});
+    expect(await env.DB.prepare("SELECT canonical_request,canonical_hash FROM mutation_receipts WHERE mutation_id=?1").bind(receipt.mutationId).first()).toEqual(storedReceipt);
+    const reused=JSON.parse(raw);reused.payload[kind].name="Changed request";const rejected=await post(JSON.stringify(reused));expect(rejected.status).toBe(409);expect(await rejected.json()).toMatchObject({error:{code:"mutation_id_reused"}});
+  });
+}
+
+for (const kind of ["project", "space"] as const) for (const existing of [false, true]) {
+  it(`captures a ${kind} ${existing ? "rename" : "creation"} between preflight and atomic acceptance`, async () => {
+    const suffix=existing?"existing":"new",id=`task.racing.${kind}.${suffix}`,referenceId=`${kind}.racing.${suffix}`,device=`device.racing.${kind}.${suffix}`,table=kind==="project"?"projects":"spaces";
+    expect((await post(mutation(device,`${device}.create`,1,"task.create",id,null,
+      {task:{id,spaceId:"space_default",title:"Concurrent names",completionState:"open",workflowStatus:"inbox",createdAt:timestamp}}))).status).toBe(201);
+    const insert=()=>env.DB.prepare(kind==="project"?"INSERT INTO projects(id,space_id,name) VALUES(?1,'space_default','Concurrent name')":"INSERT INTO spaces(id,name) VALUES(?1,'Concurrent name')").bind(referenceId).run();
+    if(existing)await insert();
+    let batches=0;const db={prepare:env.DB.prepare.bind(env.DB),batch:async(statements:D1PreparedStatement[])=>{
+      batches++;if(existing)await env.DB.prepare(`UPDATE ${table} SET name='Renamed before acceptance' WHERE id=?1`).bind(referenceId).run();else await insert();
+      return env.DB.batch(statements);
+    }} as D1Database;
+    const raw=mutation(device,`${device}.set`,2,kind==="project"?"task.setProject":"task.move",id,1,{[kind]:{id:referenceId,name:"Stale caller name"}});
+    const receipt=await applyTaskRelationship(db,parseTaskRelationshipMutation(raw,env.INSTANCE_ID),raw);
+    expect(receipt.outcome).toBe("accepted");expect(batches).toBe(1);
+    const change=await env.DB.prepare("SELECT payload_json FROM changes WHERE change_seq=?1").bind(receipt.changeSeq).first<{payload_json:string}>();
+    expect(JSON.parse(change!.payload_json).task[kind]).toEqual({id:referenceId,name:existing?"Renamed before acceptance":"Concurrent name"});
+    expect(await env.DB.prepare(`SELECT name FROM ${table} WHERE id=?1`).bind(referenceId).first()).toEqual({name:existing?"Renamed before acceptance":"Concurrent name"});
+  });
+}
