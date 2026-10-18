@@ -30,13 +30,13 @@ test('Settings never exposes task projects or editor',()=>{
 const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
 test('one-time view request is consumed so reload preserves subsequent project selection',()=>{
  let replaced;
- const context=vm.createContext({URL,location:{href:'http://localhost/?view=inbox&keep=1#anchor'},history:{state:{existing:true},replaceState:(state,title,url)=>{replaced={state,url};}}});vm.runInContext(source.match(/^function consumeViewRequest\(.*$/m)[0],context);
+ const context=vm.createContext({detailPendingSave:null,URL,location:{href:'http://localhost/?view=inbox&keep=1#anchor'},history:{state:{existing:true},replaceState:(state,title,url)=>{replaced={state,url};}}});vm.runInContext(source.match(/^function consumeViewRequest\(.*$/m)[0],context);
  assert.equal(context.consumeViewRequest(),'inbox');assert.equal(replaced.url,'/?keep=1#anchor');assert.equal(replaced.state.existing,true);
  context.location.href='http://localhost/?keep=1';replaced=null;assert.equal(context.consumeViewRequest(),null);assert.equal(replaced,null);
 });
 test('dirty close defers navigation; clean close retains caller context; pending edits cannot leave',()=>{
  let dirty=true,busy=false,closed=0,prompted=0,navigated=0;
- const context=vm.createContext({detailsDialog:{open:true,classList:{contains:()=>busy},close(){this.open=false;closed++;}},detailAutosave:{cancel(){}},detailLabelBusy:false,pendingDetailsAction:null,captureDetailDraft:()=>dirty?{notes:'draft'}:{},$:()=>({showModal(){prompted++;}})});
+ const context=vm.createContext({detailPendingSave:null,detailsDialog:{open:true,classList:{contains:()=>busy},close(){this.open=false;closed++;}},detailAutosave:{cancel(){}},detailLabelBusy:false,pendingDetailsAction:null,captureDetailDraft:()=>dirty?{notes:'draft'}:{},$:()=>({showModal(){prompted++;}})});
  vm.runInContext(source.match(/^function requestDetailsClose\(.*$/m)[0],context);
  context.requestDetailsClose(()=>navigated++);assert.equal(prompted,1);assert.equal(closed,0);assert.equal(navigated,0);assert.equal(typeof context.pendingDetailsAction,'function');
  dirty=false;busy=true;context.requestDetailsClose(()=>navigated++);assert.equal(closed,0);

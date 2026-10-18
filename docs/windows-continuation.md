@@ -14,7 +14,7 @@ batches, indexed source-history recovery, source ownership safeguards, workspace
 records and paging, and the Web task workbench. The workbench includes responsive
 panes, Spaces/projects/labels, sorting/grouping/filtering, create and open, draft
 copy and keyboard commands, archived-project navigation, and Desktop-owned
-catalog/routing intents. Draft version checks survive polling and label changes;
+delivery status. Provider account setup, intake and routing remain Desktop-only. Draft version checks survive polling and label changes;
 accepted creation and deferred navigation are protected across refresh failures
 and sign-out. Pending provider work does not imply provider confirmation.
 
@@ -40,13 +40,13 @@ npm run typecheck
 npm run test:web
 ```
 
-`npm test` and `npm run test:rebootstrap` currently contain POSIX inline environment
-assignments. Use these equivalent direct commands in PowerShell:
+`npm test` still contains a POSIX inline environment assignment. The recovery
+test script now invokes Node directly. Use these commands in PowerShell:
 
 ```powershell
 $env:WRANGLER_LOG_PATH = Join-Path $env:TEMP "openza-personal-cloud-tests.log"
 npx --no-install vitest run
-node --experimental-transform-types --test test-node/prepare-owner-rebootstrap.test.mjs test-node/emergency-bootstrap.test.mjs
+npm run test:rebootstrap
 npm run test:d1-limits
 gitleaks detect --source . --verbose
 ```
@@ -101,6 +101,20 @@ and real-provider/business acceptance. Automatic approval blocked an owner-setup
 submission during the local audit; no credential ceremony or bypass followed.
 Initial-upload progress is distinct from ongoing sync and provider delivery.
 
+## Subsequent Windows evidence and this correction
+
+[PR #2](https://github.com/openza/personal-cloud/pull/2) records the later
+Windows/Node 26 recovery checks, schema-25 migration and isolated restore
+validation, and shared Worker/SQLite round-trip acceptance. Those are prior PR
+records, separate from the historical Ubuntu counts above. They do not establish
+WinUI parity, native Linux accessibility, real-provider or production acceptance.
+
+The follow-up Web correction restores owner-only Settings delivery-lock recovery.
+A desktop must be revoked, and the owner must explicitly confirm that its host
+is stopped and provider state has been checked. It does not restore Web provider
+intake or routing. Accepted autosaves retain their draft while a confirming read
+is unavailable; they cannot be resent or reopened by a stale session continuation.
+
 ## Artifact and production boundary
 
 Pushing these branches does not package, install, migrate or deploy anything.
@@ -109,10 +123,14 @@ pin must not be assumed to contain this source. A future package must build and
 stage a matching checksum-manifested Cloud artifact using the Tasks repository's
 documented process and then verify its schema/capabilities.
 
-The existing `scripts/build-artifact.mjs` invokes an extensionless local Wrangler
-executable and uses a POSIX temporary-log path. Its native Windows execution and
-packaging have not been verified; resolve that portability check before relying
-on it for a Windows package. No new artifact or package is promised by this note.
+The current `scripts/build-artifact.mjs` invokes Wrangler's JavaScript entry point
+with `process.execPath`, uses the operating system temporary directory, recursively
+packages nested assets, and emits POSIX manifest paths. It normalizes migration
+SQL to LF before hashing; `.gitattributes` also retains LF migration checkouts.
+The extensionless-executable/POSIX-log limitation described at the original
+Ubuntu handoff was fixed by the subsequent Windows commits. This correction
+does not rerun Windows packaging or update any Desktop artifact pin. Build and
+verify a matching artifact from the intended source before staging it.
 
 Do not run remote migrations, Cloudflare login/provisioning, deployment, account
 cleanup, real-provider writes, package installation or release as part of this

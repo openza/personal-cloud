@@ -16,8 +16,8 @@ function setup() {
   nodes.set("details-conflict-actions",{hidden:true,hasAttribute(){return false;}});
   const local=new Map(),session=new Map();
   const storage=map=>({getItem:key=>map.get(key)||null,setItem:(key,value)=>map.set(key,value)});
-  const context=vm.createContext({collapsedGroups:new Set(),taskTextError,taskSaveError,detailAutosave:{cancel(){}},TextEncoder,clearDialogError(){},workspaceStateKey,controlIds,localStorage:storage(local),sessionStorage:storage(session),selectedSpaceId:"*",selectedProjectId:null,currentView:"all",viewCopySafe:{all:1,inbox:1,completed:1,search:1},restoredControls:{},detailBaseline:{},detailTaskBaseline:null,detailTaskUnavailable:false,viewPreferences:{},sharedGroups:{},HTMLSelectElement:Select,document:{getElementById:id=>nodes.get(id)},$:selector=>nodes.get(selector.slice(1))});
-  for(const name of ["contextKey","applyContextPreferences","persistWorkspaceState","restoreWorkspaceState","readDetailFields","captureDetailDraft","restoreDetailDraft"]) vm.runInContext(source.match(new RegExp(`^function ${name}\\(.*$`,"m"))[0],context);
+  const context=vm.createContext({detailPendingSave:null,detailEditorGeneration:0,ownerSessionGeneration:0,openDetails(){},collapsedGroups:new Set(),taskTextError,taskSaveError,detailAutosave:{cancel(){},reset(){}},TextEncoder,clearDialogError(){},workspaceStateKey,controlIds,localStorage:storage(local),sessionStorage:storage(session),selectedSpaceId:"*",selectedProjectId:null,currentView:"all",viewCopySafe:{all:1,inbox:1,completed:1,search:1},restoredControls:{},detailBaseline:{},detailTaskBaseline:null,detailTaskUnavailable:false,viewPreferences:{},sharedGroups:{},HTMLSelectElement:Select,document:{getElementById:id=>nodes.get(id)},$:selector=>nodes.get(selector.slice(1))});
+  for(const name of ["contextKey","applyContextPreferences","persistWorkspaceState","restoreWorkspaceState","readDetailFields","captureDetailDraft","restoreDetailDraft","isCurrentDetail","confirmPendingDetailSave","showAcceptedDetailSave"]) vm.runInContext(source.match(new RegExp(`^function ${name}\\(.*$`,"m"))[0],context);
   return {context,nodes,local,session};
 }
 
@@ -104,9 +104,9 @@ test('notes-only save retains assigned archived or unavailable project; explicit
   class BrowserSelect {options=[];replaceChildren(...options){this.options=options;this.value=options[0]?.value??'';}set value(v){this.selected=this.options.some(o=>o.value===v)?v:'';}get value(){return this.selected;}}
   context.Option=class {constructor(text,value){this.text=text;this.value=value;this.disabled=false;}};
   context.currentPayload={projects:[],allProjects:unavailable?[]:[assigned],tasks:[task]};context.selectedTaskId=task.id;context.currentEditable=true;context.workspaceSupported=()=>true;
-  context.detailsDialog={close(){}};context.setDialogBusy=()=>{};context.plannedEdit=()=>null;context.finishMutations=async()=>{};
+  context.detailsDialog={open:true,close(){}};context.setDialogBusy=()=>{};context.plannedEdit=()=>null;context.finishMutations=async()=>true;
   for(const [id,value] of Object.entries({'details-title':'Task','details-notes':'Edited notes','details-status':'inbox','details-priority':'3','details-planned':'','details-deadline':'','details-space':'space_a'}))nodes.set(id,{value});
-  const select=new BrowserSelect();nodes.set('details-project',select);let payload;context.sendMutation=async(...args)=>{payload=args[3]};
+  const select=new BrowserSelect();nodes.set('details-project',select);let payload;context.sendMutation=async(...args)=>{payload=args[3];context.currentPayload.tasks[0].entityVersion++;return{entityVersion:context.currentPayload.tasks[0].entityVersion};};
   for(const name of ['fillProjectSelect','saveTask'])vm.runInContext(source.match(new RegExp(`^(?:async )?function ${name}\\(.*$`,'m'))[0],context);
   context.fillProjectSelect(select,'space_a',assigned.id);assert.equal(select.value,assigned.id);assert.equal(select.options.at(-1).disabled,true);
   await context.saveTask({preventDefault(){}});assert.deepEqual(JSON.parse(JSON.stringify(payload)),{fields:{notes:'Edited notes'}});
@@ -117,7 +117,7 @@ test('notes-only save retains assigned archived or unavailable project; explicit
 test('a background update cannot promote a dirty editor to the latest version or overwrite untouched remote fields',async()=>{
  const {context,nodes}=setup(),baseline={id:'task_a',spaceId:'space_a',projectId:null,title:'Original title',notes:null,workflowStatus:'inbox',priority:3,plannedOn:null,plannedAt:null,deadlineOn:null,deadlineAt:null,entityVersion:1};
  context.detailTaskBaseline=baseline;context.currentPayload={tasks:[{...baseline,title:'Remote title',entityVersion:2}]};context.selectedTaskId=baseline.id;context.currentEditable=true;context.workspaceSupported=()=>true;context.setDialogBusy=()=>{};context.plannedEdit=()=>null;
- let submitted,closed=false,reported;context.detailsDialog={close(){closed=true;}};context.showDialogError=(_dialog,message)=>{reported=message;};context.sendMutation=async(...args)=>{submitted=args;throw Object.assign(new Error('Task changed remotely'),{status:409});};
+ let submitted,closed=false,reported;context.detailsDialog={open:true,close(){closed=true;}};context.showDialogError=(_dialog,message)=>{reported=message;};context.sendMutation=async(...args)=>{submitted=args;throw Object.assign(new Error('Task changed remotely'),{status:409});};
  for(const [id,value]of Object.entries({'details-title':'Original title','details-notes':'Unsaved notes','details-status':'inbox','details-priority':'3','details-planned':'','details-deadline':'','details-space':'space_a','details-project':''}))nodes.set(id,{value});
  vm.runInContext(source.match(/^async function saveTask\(.*$/m)[0],context);assert.equal(await context.saveTask({preventDefault(){}}),false);assert.equal(submitted[1],1);assert.deepEqual(JSON.parse(JSON.stringify(submitted[3])),{fields:{notes:'Unsaved notes'}});assert.equal(nodes.get('details-notes').value,'Unsaved notes');assert.equal(closed,false);assert.equal(reported,'Task changed remotely');
 });
@@ -129,7 +129,7 @@ for(const remote of ['before-label','during-refresh','none'])test(`label changes
  context.detailBaseline=context.readDetailFields();context.detailTaskBaseline={...task};nodes.get('details-notes').value='Intentional draft';
  let current={...task,...(remote==='before-label'?{notes:'Remote notes',entityVersion:2}:{})};context.currentPayload.tasks=[current];
  context.sendMutation=async(id,base,operation,payload)=>{assert.equal(id,task.id);if(operation==='task.addLabel'){assert.equal(base,current.entityVersion);current={...current,entityVersion:base+1,labels:[payload.label]};return{entityId:id,entityVersion:current.entityVersion,outcome:'accepted'};}assert.equal(operation,'task.patch');if(base!==current.entityVersion)throw Object.assign(new Error('Task changed remotely'),{status:409});current={...current,...payload.fields,entityVersion:base+1};return{entityId:id,entityVersion:current.entityVersion,outcome:'accepted'};};
- context.finishMutations=async()=>{if(remote==='during-refresh')current={...current,title:'Remote title',notes:'Remote notes',entityVersion:current.entityVersion+1};context.currentPayload.tasks=[current];};
+ context.finishMutations=async()=>{if(remote==='during-refresh')current={...current,title:'Remote title',notes:'Remote notes',entityVersion:current.entityVersion+1};context.currentPayload.tasks=[current];return true;};
  context.plannedEdit=()=>null;context.detailsDialog.close=()=>{context.detailsDialog.open=false;};let error;context.showDialogError=(_dialog,message)=>{error=message;};
  vm.runInContext(source.match(/^async function saveTask\(.*$/m)[0],context);
  await context.addSelectedLabel();

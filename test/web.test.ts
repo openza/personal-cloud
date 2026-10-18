@@ -85,7 +85,7 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(pageHtml).toContain("Next Actions");
     expect(pageHtml).toContain('id="task-dialog"');
     expect(pageHtml).toContain('id="details-dialog"');
-    expect(pageHtml).not.toContain('id="delivery-list"');
+    expect(pageHtml).toContain('id="delivery-list"');
     expect(pageHtml).toContain("Manage third-party accounts, task intake and routing in Openza Desktop.");
     expect(pageHtml).not.toContain('id="workspace-connected"');
     expect(pageHtml).not.toContain('id="workspace-routing"');
@@ -117,8 +117,8 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(browserCode).toContain("tasksPanel.hidden=false");
     expect(browserCode).toContain("moveTaskTree");
     expect(browserCode).toContain("providerDeliveryLabel(task.externalCommand)");
-    expect(browserCode).not.toContain("/auth/provider-deliveries");
-    expect(browserCode).not.toContain("reconcileDelivery");
+    expect(browserCode).toContain("/auth/provider-deliveries");
+    expect(browserCode).toContain("reconcileDelivery");
     expect(browserCode).not.toContain("prompt(");
     expect(browserCode).not.toContain("k5-local-read-only");
     expect(browserCode).not.toContain("x-openza-test-session");

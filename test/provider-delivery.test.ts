@@ -142,8 +142,8 @@ it("a late result releases its old attempt without confirming newer intent",asyn
   expect(await env.DB.prepare("SELECT command,state FROM external_commands WHERE task_id=?1").bind(f.taskId).first()).toEqual({command:"reopen",state:"pending_desktop"});
   expect((await claimDelivery(env.DB,next)).command).toBe("reopen");
 });
-it("manual uncertainty reconciliation requires stopped host, provider check and revoked credential",async()=>{
-  const f=await fixture();await claimDelivery(env.DB,f.request);await startDelivery(env.DB,f.request.claimId,f.a);
+it.each(["reserved","started"])("manual %s reconciliation requires stopped host, provider check and revoked credential",async(state)=>{
+  const f=await fixture();await claimDelivery(env.DB,f.request);if(state==="started")await startDelivery(env.DB,f.request.claimId,f.a);
   const body=JSON.stringify({claimId:f.request.claimId,deliveryHostStopped:true,providerStateChecked:true});
   await expect(reconcileDelivery(env.DB,body)).rejects.toMatchObject({code:"invalid_transition"});
   await env.DB.prepare("UPDATE devices SET revoked_at=?1 WHERE device_id=?2").bind(at,f.a).run();

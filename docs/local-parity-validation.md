@@ -2,7 +2,9 @@
 
 Desktop owns third-party accounts, provider requests and routing. Web is a
 Personal Cloud companion for the shared task workspace. Source-task facts and
-completion feedback remain visible on Web; integration management does not.
+completion feedback remain visible on Web; integration intake/routing management
+does not. Owner-only Settings delivery reconciliation remains available to
+release reserved/started locks after revocation and explicit host/provider checks.
 
 Build a fresh validation artifact with `npm run build:artifact -- <version>`.
 Start the disposable fixture from this repository:

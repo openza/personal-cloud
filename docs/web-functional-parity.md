@@ -2,8 +2,9 @@
 
 Desktop is the core app and owns all third-party integrations. Web is its
 Personal Cloud companion. Shared task behavior and visual language are the
-parity target; provider account setup, intake, routing and delivery recovery
-are intentionally absent from Web. Reproducible local acceptance is documented
+parity target; provider account setup, intake and routing are intentionally
+absent from Web. Owner-only Settings retains manual delivery-lock recovery;
+Desktop has no replacement for these owner-session endpoints. Reproducible local acceptance is documented
 in [Local shared-workflow validation](local-parity-validation.md).
 
 Source-only implementation of Linux task-workspace functionality and the frozen
@@ -26,7 +27,7 @@ SqliteTaskStore.cs, TaskQuery.cs, TaskGroupAssignment.cs, TaskDateValues.cs.
 | Search | Current-list search with ancestor context; ranked global task/project search with current/all-Space scope, completed option and direct-child results, bounded to25. Project descriptions and archive exclusions included. |
 | Preferences | Durable Space/view/project plus per-context task controls, shared All Tasks/project grouping, and project sort/direction/favorite-first preference; session-state migration retained. |
 | Provider facts | Source title/details read-only, local overlays editable, provider completion status remains distinct from provider confirmation. Refreshed descriptor title is authoritative in task reads/full workspace snapshots. Local recurrence is separate from source recurrence. |
-| Third-party integrations | Desktop-only. Web does not expose provider sign-in, catalog adoption/skipping, routing or delivery recovery. Cloud retains synchronization protocols for Desktop. Source descriptors and provider completion status remain visible on synchronized tasks. |
+| Third-party integrations | Desktop-only. Web does not expose provider sign-in, catalog adoption/skipping or routing. Owner Settings separately lists paginated reserved/started deliveries and permits explicit reconciliation only after device revocation and stopped-host/provider-state confirmation. This releases a lock without confirming provider success. Cloud retains synchronization protocols for Desktop. Source descriptors and provider completion status remain visible on synchronized tasks. |
 | Initial upload | Imported ordered per-device status endpoint, truthful nullable counts, no invented percentage, precedence/staleness/unknown handling, independent polling/abort/resume/signout guards and phase-specific empty states. Telemetry failure does not disable current task controls. |
 | Efficiency | Imported indexed source/deletion history and optional ordered max2 mutation batch. New atomic workspace operations retain bounded SQL invocation count; no native/provider credentials enter Cloud. |
 
@@ -58,7 +59,7 @@ share the Desktop color, type, spacing and corner tokens. Navigation and project
 creation icons are from Microsoft's MIT-licensed Fluent System Icons; their
 license is shipped with the Web assets.
 
-Task edits autosave on field blur without closing the inspector or moving focus. Explicit Save remains available as a fallback. Row actions reach Date, Project, Labels, Status, Priority and Space through the same guarded inspector. Project rows open their edit dialog directly; Settings lists Spaces and supports create/rename/archive. Closing or navigating away from a dirty editor
+Task edits autosave on field blur without closing the inspector or moving focus. An accepted write whose confirming read fails keeps its draft read only with “Saved · waiting for refresh”; it is not resent. A later fresh task version confirms it. Session/editor generation guards prevent stale continuations after sign-out or navigation. Explicit Save remains available as a fallback. Row actions reach Date, Project, Labels, Status, Priority and Space through the same guarded inspector. Project rows open their edit dialog directly; Settings lists Spaces and supports create/rename/archive. Closing or navigating away from a dirty editor
 offers Save, Discard, or Keep editing; resizing does not recreate the editor.
 The same guard applies before completing a task. If refresh removes the selected
 task, a dirty draft remains available read only for copying instead of being
@@ -82,7 +83,10 @@ Created-date ordering retains the existing newest-first default and oldest-first
 reverse preference, with contextual labels describing that ordering. Other sort
 directions retain their ascending/descending meaning. Destructive task/device
 confirmations use the shared in-page dialog and default to Cancel;
-Provider delivery recovery belongs to Desktop; the Cloud guards remain intact.
+Provider delivery reconciliation is an owner-only Web Settings action. Its
+confirmation defaults to Cancel, requires a revoked device and explicit stopped-
+host/provider-state acknowledgement, and does not confirm provider success.
+Listing supports pagination, retryable errors and session-expiry handling.
 
 Owner writes recover once from an explicit `csrf_failed` response by reading a
 fresh token and replaying the identical request body under a shared Web Lock.

@@ -50,6 +50,9 @@
       <section id="devices-panel" class="cloud-panel management-panel" aria-labelledby="devices-heading" hidden>
         <div class="panel-heading"><div><p class="section-label">Desktop access</p><h2 id="devices-heading">Paired devices</h2></div><button id="create-pairing" type="button">Pair a desktop</button></div>
         <div id="pairing-result" class="secret-result" hidden></div><div id="device-list" class="device-list"></div>
+        <h3>Provider delivery recovery</h3><p>Reserved and started delivery attempts retain their locks after a desktop is revoked. Stop the old desktop, revoke its access, and check the external provider before reconciling. Reconciliation releases the lock; it does not confirm provider success.</p>
+        <div id="delivery-list" class="device-list"></div><p id="delivery-status" role="status" aria-live="polite"></p>
+        <button id="more-deliveries" class="secondary-button" type="button" hidden>More deliveries</button><button id="retry-deliveries" class="secondary-button" type="button">Refresh deliveries</button>
         <button id="signout" class="secondary-button" type="button">Sign out</button>
       </section>
     </main>
