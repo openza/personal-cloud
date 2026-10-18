@@ -60,4 +60,4 @@ The `_headers` file is checksum-recorded artifact metadata, not a public downloa
 
 Read [security and privacy](SECURITY.md), [setup/lifecycle/rollback precautions](docs/lifecycle.md), and [public release preparation](docs/public-release.md). Task data is access-controlled but not end-to-end encrypted. The browser retains a local cached task copy, including after sign-out. Provider tokens are never uploaded.
 
-Linux is the current development scope. Windows and fresh Snap validation are deferred. Live lifecycle rehearsals, public OAuth availability and release acceptance remain separate gates; building, committing or pushing source does not deploy it.
+The original Linux handoff and subsequent Windows evidence are distinguished in [Windows continuation](docs/windows-continuation.md) and [local validation](docs/local-parity-validation.md). They do not establish WinUI feature parity, comprehensive native accessibility or fresh Snap acceptance. Live lifecycle rehearsals, public OAuth availability and release acceptance remain separate gates; building, committing or pushing source does not deploy it.

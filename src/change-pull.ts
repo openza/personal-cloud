@@ -1,3 +1,5 @@
+import { ContractError } from "./protocol.ts";
+import {maximumSyncResponseBytes,utf8Bytes,oversizedResponse} from './workspace-paging.ts';
 export type TaskCreatedChange = {
   protocolVersion: 1;
   product: "tasks";
@@ -182,13 +184,16 @@ export type TaskChange =
   TaskCreatedChange | TaskTitleUpdatedChange | TaskWorkflowStatusUpdatedChange | TaskPriorityUpdatedChange |
   TaskPlannedOnUpdatedChange | TaskPlannedAtUpdatedChange | TaskNotesUpdatedChange | TaskDeadlineOnUpdatedChange |
   TaskCompletedChange | TaskReopenedChange | TaskDeletedChange | TaskRelationshipChange |
-  TaskSourceRefreshedChange | TaskExternalCommandChanged;
+  TaskSourceRefreshedChange | TaskExternalCommandChanged | WorkspaceChange;
+
+export type WorkspaceChange={protocolVersion:1;product:"tasks";changeSeq:number;mutationId:string;operation:"workspace.changed";entityKind:"workspace";entityId:string;entityVersion:number;payload:Record<string,any[]>;serverAcceptedAt:string};
 
 export type ChangePage = {
   protocolVersion: 1;
   product: "tasks";
   changes: TaskChange[];
   nextCheckpoint: number;
+  hasMore?:boolean;
 };
 
 type ChangeRow = {
@@ -204,26 +209,37 @@ type ChangeRow = {
   server_accepted_at: string;
 };
 
-export async function pullChanges(db: D1Database, after: number, limit: number): Promise<ChangePage> {
+export async function pullChanges(db: D1Database, after: number, limit: number,workspace=false,paged=false): Promise<ChangePage> {
   const result = await db.prepare(`
-    SELECT protocol_version, product, change_seq, mutation_id, operation, entity_kind,
-           entity_id, entity_version, payload_json, server_accepted_at
-    FROM changes
-    WHERE product = 'tasks' AND change_seq > ?1
-    ORDER BY change_seq ASC
-    LIMIT ?2
-  `).bind(after, limit).all<ChangeRow>();
+    WITH candidates AS (
+      SELECT change_seq,length(CAST(payload_json AS BLOB)) AS payload_bytes FROM changes WHERE product='tasks' AND change_seq>?1 ORDER BY change_seq LIMIT ?2
+    ), budget AS (
+      SELECT *,row_number() OVER(ORDER BY change_seq) AS ordinal,count(*) OVER() AS candidate_count,
+        sum(payload_bytes+1024) OVER(ORDER BY change_seq) AS cumulative_bytes
+      FROM candidates
+    ) SELECT c.protocol_version,c.product,c.change_seq,c.mutation_id,c.operation,c.entity_kind,
+      c.entity_id,c.entity_version,c.payload_json,c.server_accepted_at,b.candidate_count
+      FROM budget b JOIN changes c ON c.change_seq=b.change_seq
+      WHERE b.ordinal<=?3 AND (b.cumulative_bytes<=?4 OR b.ordinal=1) ORDER BY c.change_seq
+  `).bind(after, limit+1,limit,maximumSyncResponseBytes-256).all<ChangeRow&{candidate_count:number}>();
 
+  if(!workspace&&result.results.some(row=>row.operation==="workspace.changed"))throw new ContractError("upgrade_required","This change requires workspace v1; do not advance the checkpoint.");
   const changes = result.results.map(toChange);
-  return {
+  const page:ChangePage={
     protocolVersion: 1,
     product: "tasks",
     changes,
     nextCheckpoint: changes.at(-1)?.changeSeq ?? after,
   };
+  const hasMore=(result.results[0]?.candidate_count??0)>changes.length;
+  if(paged)page.hasMore=hasMore;
+  if(utf8Bytes(page)>maximumSyncResponseBytes){if(paged)oversizedResponse();throw new ContractError('upgrade_required','This workspace requires bounded sync paging.');}
+  if(!paged&&changes.length<Math.min(limit,result.results[0]?.candidate_count??0))throw new ContractError('upgrade_required','This workspace requires bounded sync paging.');
+  return page;
 }
 
 function toChange(row: ChangeRow): TaskChange {
+  if(row.operation==="workspace.changed"&&row.entity_kind==="workspace"&&row.protocol_version===1&&row.product==="tasks"&&Number.isSafeInteger(row.entity_version)&&row.entity_version>0){const stored=JSON.parse(row.payload_json),keys=Object.keys(stored).sort().join(",");if(!["catalog,intents,projects,routes,spaces,tasks","catalog,intents,projects,routes,scopes,spaces,tasks"].includes(keys)||Object.values(stored).some(v=>!Array.isArray(v)))throw new Error("Invalid workspace payload.");const payload={...stored,scopes:stored.scopes??[]};return {protocolVersion:1,product:"tasks",changeSeq:row.change_seq,mutationId:row.mutation_id,operation:"workspace.changed",entityKind:"workspace",entityId:row.entity_id,entityVersion:row.entity_version,payload,serverAcceptedAt:row.server_accepted_at};}
   if (row.protocol_version !== 1 || row.product !== "tasks" || row.entity_kind !== "task" ||
       !Number.isSafeInteger(row.entity_version) || row.entity_version <= 0) {
     throw new Error("The stored change is outside the Tasks change contract.");

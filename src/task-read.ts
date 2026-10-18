@@ -1,3 +1,4 @@
+import {spaceJson,projectJson} from "./workspace-records.ts";
 import { ContractError } from "./protocol.ts";
 
 type TaskCursor = { createdAt: string; id: string; revision: number };
@@ -30,10 +31,12 @@ export type ReadOnlyTask = {
   plannedAt: string | null;
   notes: string | null;
   deadlineOn: string | null;
+  deadlineAt:string|null;scheduledStart:string|null;scheduledEnd:string|null;durationMinutes:number|null;recurrenceRule:string|null;
   projectId: string | null;
   parentId: string | null;
   labels: { id: string; name: string }[];
   createdAt: string;
+  updatedAt: string | null;
   entityVersion: number;
   source: null | {
     integrationKind: string; sourceUrl: string | null; title: string; description: string | null;
@@ -70,6 +73,7 @@ type TaskRow = {
   planned_at: string | null;
   notes: string | null;
   deadline_on: string | null;
+  deadline_at:string|null;scheduled_start:string|null;scheduled_end:string|null;duration_minutes:number|null;recurrence_rule:string|null;
   project_id: string | null;
   parent_id: string | null;
   labels_json: string;
@@ -79,6 +83,7 @@ type TaskRow = {
   source_deadline_at: string | null; source_recurrence_rule: string | null; source_refreshed_at: string | null;
   command: string | null; command_state: string | null; command_error_code: string | null; delivery_state:"reserved"|"started"|null;
   created_at: string;
+  updated_at: string | null;
   entity_version: number;
 };
 
@@ -95,8 +100,8 @@ export async function readTasks(
   const [result, spaces, projects, labels, state] = await db.batch([
     db.prepare(`
     SELECT tasks.id, tasks.title, tasks.space_id, tasks.completion_state,
-           tasks.workflow_status, tasks.priority, tasks.created_at, tasks.completed_at,
-           tasks.planned_on, tasks.planned_at, tasks.notes, tasks.deadline_on,
+           tasks.workflow_status, tasks.priority, tasks.created_at, tasks.updated_at, tasks.completed_at,
+           tasks.planned_on, tasks.planned_at, tasks.notes, tasks.deadline_on,tasks.deadline_at,tasks.scheduled_start,tasks.scheduled_end,tasks.duration_minutes,tasks.recurrence_rule,
            tasks.project_id, tasks.parent_id, tasks.entity_version,
            COALESCE((SELECT json_group_array(json_object('id', labels.id, 'name', labels.name))
              FROM task_labels INNER JOIN labels ON labels.id=task_labels.label_id
@@ -119,8 +124,8 @@ export async function readTasks(
     ORDER BY tasks.created_at ASC, tasks.id ASC
     LIMIT 1001
   `).bind(cursor?.createdAt ?? null, cursor?.id ?? null),
-    db.prepare("SELECT id,name FROM spaces WHERE deleted_at IS NULL ORDER BY name,id"),
-    db.prepare("SELECT id,space_id AS spaceId,name FROM projects WHERE deleted_at IS NULL ORDER BY name,id"),
+    db.prepare(`SELECT id,name,${spaceJson} AS record FROM spaces s WHERE s.deleted_at IS NULL ORDER BY name,id`),
+    db.prepare(`SELECT id,space_id AS spaceId,name,${projectJson} AS record FROM projects p WHERE p.deleted_at IS NULL ORDER BY name,id`),
     db.prepare("SELECT id,name FROM labels WHERE deleted_at IS NULL ORDER BY name,id"),
     db.prepare("SELECT next_change_seq AS revision FROM cloud_state WHERE singleton=1"),
   ]) as [D1Result<TaskRow>, D1Result<SpaceRow>, D1Result<ProjectRow>, D1Result<LabelRow>, D1Result<{ revision: number }>];
@@ -138,25 +143,26 @@ export async function readTasks(
     instanceId,
     freshness: "current",
     serverReadAt: now().toISOString(),
-    spaces: spaces.results,
-    projects: projects.results,
+    spaces: spaces.results.map((s:any)=>JSON.parse(s.record)),
+    projects: projects.results.map((p:any)=>JSON.parse(p.record)),
     labels: labels.results,
     hasMore,
     readRevision: revision,
     nextCursor: hasMore && last ? btoa(JSON.stringify({ createdAt: last.created_at, id: last.id, revision })) : null,
     tasks: taskRows.map((row) => ({
       id: row.id,
-      title: row.title,
+      title: row.source_title ?? row.title,
       spaceId: row.space_id,
       completionState: requireCompletionState(row.completion_state),
       workflowStatus: requireWorkflowStatus(row.workflow_status),
       priority: requirePriority(row.priority),
       createdAt: row.created_at,
+      updatedAt: row.updated_at,
       completedAt: requireCompletedAt(row.completion_state, row.completed_at),
       plannedOn: row.planned_on,
       plannedAt: row.planned_at,
       notes: row.notes,
-      deadlineOn: row.deadline_on,
+      deadlineOn: row.deadline_on,deadlineAt:row.deadline_at,scheduledStart:row.scheduled_start,scheduledEnd:row.scheduled_end,durationMinutes:row.duration_minutes,recurrenceRule:row.recurrence_rule,
       projectId: row.project_id,
       parentId: row.parent_id,
       labels: JSON.parse(row.labels_json) as { id: string; name: string }[],

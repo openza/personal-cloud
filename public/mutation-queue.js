@@ -26,7 +26,8 @@ export function createMutationSender({ storage, locks, send, sequenceKey, makeId
       } catch (error) {
         // Definitive contract rejections did not consume the sequence. Keep
         // uncertain network/server/auth failures for exact replay after retry.
-        if (error.status >= 400 && error.status < 500 && error.status !== 401 && error.status !== 403 && error.status !== 429) {
+        // Explicit csrf_failed is rejected before any domain mutation executes.
+        if ((error.status === 403 && error.code === "csrf_failed") || (error.status >= 400 && error.status < 500 && error.status !== 401 && error.status !== 403 && error.status !== 429)) {
           storage.removeItem(pendingKey);
         }
         throw error;

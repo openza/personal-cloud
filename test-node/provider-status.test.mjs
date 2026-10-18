@@ -2,6 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import vm from "node:vm";
+import {resolveSpace} from "../public/workspace-query.js";
 import {providerDeliveryLabel} from "../public/provider-status.js";
 test("Openza completion is never presented as provider confirmation while pending or uncertain",()=>{
   assert.equal(providerDeliveryLabel(null),"");
@@ -13,10 +14,11 @@ test("Openza completion is never presented as provider confirmation while pendin
 test("polling refreshes open provider details without replacing unsaved fields",()=>{
   const source=readFileSync(new URL("../public/app.js",import.meta.url),"utf8"),nodes=new Map();
   const field={value:"Unsaved notes",disabled:false},dialog={open:true,classList:{contains:()=>false},querySelectorAll:()=>[field],close(){this.open=false;}};
-  const context=vm.createContext({currentPayload:{},currentEditable:true,selectedSpaceId:null,selectedTaskId:"task_a",detailsDialog:dialog,lastUpdated:{},providerDeliveryLabel,
+  nodes.set('#details-notes',field);
+  const context=vm.createContext({detailPendingSave:null,detailEditorGeneration:0,detailAutosave:{reset(){}},confirmPendingDetailSave:()=>false,pendingCreatedTaskId:null,currentPayload:{},currentEditable:true,detailLabelBusy:false,detailTaskUnavailable:false,captureDetailDraft:()=>({notes:field.value}),showDialogError(){},setDialogBusy(){field.disabled=true;},selectedSpaceId:null,selectedProjectId:null,resolveSpace,selectedTaskId:"task_a",detailsDialog:dialog,lastUpdated:{},providerDeliveryLabel,workspaceSupported:()=>true,workspaceControls:{render(){}},
     $:selector=>{if(!nodes.has(selector))nodes.set(selector,{});return nodes.get(selector);},normalizePayload:value=>value,
     persistWorkspaceState(){},setStatus(){},setNotice(){},hydrateReferences(){},renderSidebar(){},renderTaskList(){},formatTime:value=>value});
-  for(const name of ["renderWorkspace","refreshOpenDetailsStatus","renderSource"])vm.runInContext(source.match(new RegExp(`^function ${name}\\(.*$`,"m"))[0],context);
+  for(const name of ["renderWorkspace","refreshOpenDetailsStatus","lockWorkspaceDetailFields","renderSource"])vm.runInContext(source.match(new RegExp(`^function ${name}\\(.*$`,"m"))[0],context);
   const task={id:"task_a",completionState:"completed",source:{title:"Provider task"},externalCommand:{state:"confirmed"}};
   const poll=(command,state="current")=>{task.externalCommand=command;context.renderWorkspace({tasks:[task],spaces:[],serverReadAt:"now"},state,"then");return nodes.get("#source-copy").textContent;};
   assert.match(poll({state:"confirmed"}),/Provider confirmed/);
@@ -28,5 +30,5 @@ test("polling refreshes open provider details without replacing unsaved fields",
   assert.match(poll({state:"confirmed"},"stale"),/Last confirmed; may be outdated/);assert.equal(field.disabled,true);
   poll({state:"pending_desktop"});assert.equal(field.disabled,false);
   dialog.classList.contains=()=>true;field.disabled=true;poll({state:"confirmed"});assert.equal(field.disabled,true);
-  context.renderWorkspace({tasks:[],spaces:[],serverReadAt:"now"},"current","then");assert.equal(dialog.open,false);assert.equal(context.selectedTaskId,null);
+  context.renderWorkspace({tasks:[],spaces:[],serverReadAt:"now"},"current","then");assert.equal(dialog.open,true);assert.equal(context.detailTaskUnavailable,true);assert.equal(field.value,"Unsaved notes");assert.equal(field.disabled,true);context.captureDetailDraft=()=>({});context.renderWorkspace({tasks:[],spaces:[],serverReadAt:"now"},"current","then");assert.equal(dialog.open,false);assert.equal(context.selectedTaskId,null);
 });

@@ -3,12 +3,14 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light">
+    <meta name="color-scheme" content="light dark">
     <title>Openza Personal Cloud</title>
     <meta name="description" content="Your synchronized Openza task workspace.">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=mobile-navigation-2">
-    <script type="module" src="/app.js?v=paging-1"></script>
+    <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/styles.css?v=desktop-parity-5">
+    <script type="module" src="/appearance.js?v=parity-3"></script>
+    <script type="module" src="/app.js?v=desktop-parity-5"></script>
   </head>
   <body>
     <header id="site-header" class="site-header">
@@ -38,52 +40,71 @@
         </form>
       </section>
       <div id="recovery-result" class="secret-result one-time-secret" role="status" hidden></div>
+      <section id="appearance-panel" class="cloud-panel management-panel" aria-labelledby="appearance-heading" hidden>
+        <h2 id="appearance-heading">Appearance</h2>
+        <div class="settings-row"><div><strong>Theme</strong><p>Choose how Openza looks on this device.</p></div><label><span class="visually-hidden">Theme</span><select id="theme-preference"><option>System</option><option>Light</option><option>Dark</option></select></label></div>
+        <div class="settings-row"><div><strong>Spaces and projects</strong><p>Organize your task workspace.</p></div><button id="settings-manage-workspace" type="button" class="secondary-button">Manage workspace</button></div>
+        <section class="settings-spaces" aria-labelledby="settings-spaces-heading"><div class="panel-heading"><h3 id="settings-spaces-heading">Spaces</h3><button id="settings-create-space" class="secondary-button" type="button">Create Space</button></div><div id="settings-spaces"></div></section>
+        <div class="settings-row"><div><strong>Integrations</strong><p>Manage third-party accounts, task intake and routing in Openza Desktop. Synchronized tasks remain available here.</p></div></div>
+      </section>
       <section id="devices-panel" class="cloud-panel management-panel" aria-labelledby="devices-heading" hidden>
         <div class="panel-heading"><div><p class="section-label">Desktop access</p><h2 id="devices-heading">Paired devices</h2></div><button id="create-pairing" type="button">Pair a desktop</button></div>
         <div id="pairing-result" class="secret-result" hidden></div><div id="device-list" class="device-list"></div>
-        <h3>Provider delivery</h3><p>Started delivery is not automatically repeated. If a desktop was lost or delivery is uncertain, stop it, revoke its access, and check the external provider before reconciling.</p>
-        <div id="delivery-list" class="device-list" aria-live="polite"></div>
-        <button id="more-deliveries" class="secondary-button" type="button" hidden>More deliveries</button>
+        <h3>Provider delivery recovery</h3><p>Reserved and started delivery attempts retain their locks after a desktop is revoked. Stop the old desktop, revoke its access, and check the external provider before reconciling. Reconciliation releases the lock; it does not confirm provider success.</p>
+        <div id="delivery-list" class="device-list"></div><p id="delivery-status" role="status" aria-live="polite"></p>
+        <button id="more-deliveries" class="secondary-button" type="button" hidden>More deliveries</button><button id="retry-deliveries" class="secondary-button" type="button">Refresh deliveries</button>
         <button id="signout" class="secondary-button" type="button">Sign out</button>
       </section>
     </main>
 
     <section id="tasks-panel" class="task-workspace" aria-label="Openza Tasks workspace" hidden>
       <aside class="task-sidebar">
-        <a class="workspace-brand" href="/"><span class="brand-mark" aria-hidden="true">O</span><strong>Openza</strong></a>
-        <button id="add-task" class="add-task-button" type="button"><span aria-hidden="true">＋</span> Add task</button>
+        <button id="toggle-navigation" class="navigation-toggle" type="button" aria-expanded="true" aria-controls="view-nav" aria-label="Toggle navigation" title="Toggle navigation"><img src="/fluent-navigation.svg" width="20" height="20" alt=""></button>
+        <button id="add-task" class="add-task-button" type="button" disabled><span aria-hidden="true">＋</span> Add task</button>
         <nav id="view-nav" class="view-nav" aria-label="Task views">
-          <button type="button" data-view="search"><span>⌕</span> Search</button>
-          <button type="button" data-view="inbox"><span>▱</span> Inbox <small data-count="inbox"></small></button>
-          <button type="button" data-view="next"><span>→</span> Next Actions <small data-count="next"></small></button>
-          <button type="button" data-view="today"><span>○</span> Today <small data-count="today"></small></button>
-          <button type="button" data-view="calendar"><span>□</span> Calendar <small data-count="calendar"></small></button>
-          <button type="button" data-view="overdue"><span>!</span> Overdue <small data-count="overdue"></small></button>
-          <button type="button" data-view="waiting"><span>◷</span> Waiting For <small data-count="waiting"></small></button>
-          <button type="button" data-view="someday"><span>◇</span> Someday <small data-count="someday"></small></button>
-          <button type="button" data-view="all"><span>≡</span> All Tasks <small data-count="all"></small></button>
-          <button type="button" data-view="completed"><span>✓</span> Completed <small data-count="completed"></small></button>
+          <button type="button" data-view="search"><span class="nav-icon" aria-hidden="true"></span> Search</button>
+          <button type="button" data-view="inbox"><span class="nav-icon" aria-hidden="true"></span> Inbox <small data-count="inbox"></small></button>
+          <button type="button" data-view="next"><span class="nav-icon" aria-hidden="true"></span> Next Actions <small data-count="next"></small></button>
+          <button type="button" data-view="today"><span class="nav-icon" aria-hidden="true"></span> Today <small data-count="today"></small></button>
+          <button type="button" data-view="calendar"><span class="nav-icon" aria-hidden="true"></span> Calendar <small data-count="calendar"></small></button>
+          <button type="button" data-view="overdue"><span class="nav-icon" aria-hidden="true"></span> Overdue <small data-count="overdue"></small></button>
+          <button type="button" data-view="waiting"><span class="nav-icon" aria-hidden="true"></span> Waiting For <small data-count="waiting"></small></button>
+          <button type="button" data-view="someday"><span class="nav-icon" aria-hidden="true"></span> Someday <small data-count="someday"></small></button>
+          <button type="button" data-view="all"><span class="nav-icon" aria-hidden="true"></span> Tasks <small data-count="all"></small></button>
+          <button type="button" data-view="completed"><span class="nav-icon" aria-hidden="true"></span> Completed <small data-count="completed"></small></button>
         </nav>
-        <div class="sidebar-section"><p>Spaces</p><div id="space-list" class="space-list"></div></div>
-        <a class="sidebar-settings" href="/settings">⚙ Settings</a>
-      </aside>
-      <div class="workspace-main">
-        <header class="workspace-header"><div><p id="workspace-eyebrow" class="workspace-eyebrow">Inbox</p><h1 id="workspace-title">Inbox</h1><p id="workspace-subtitle">Capture first. Organize when it helps.</p></div><div id="status-pill" class="status-pill loading" role="status" aria-live="polite"><span class="status-dot" aria-hidden="true"></span><span id="status-label">Connecting</span></div></header>
-        <div class="task-toolbar">
-          <label class="search-box"><span aria-hidden="true">⌕</span><input id="task-search" type="search" placeholder="Search tasks" autocomplete="off"></label>
-          <label>Sort<select id="sort-select"><option value="priority">Priority</option><option value="date">Date</option><option value="created">Created</option><option value="title">Title</option></select></label>
-          <label>Group<select id="group-select"><option value="none">None</option><option value="date">Date</option><option value="project">Project</option><option value="status">Status</option><option value="priority">Priority</option><option value="label">Label</option><option value="source">Source</option></select></label>
-          <button id="toggle-filters" class="toolbar-button" type="button">Filters</button><button id="retry" class="toolbar-button" type="button">Refresh</button>
+        <div class="sidebar-bottom"><div id="status-pill" class="status-pill loading" role="status" aria-live="polite"><span class="status-dot" aria-hidden="true"></span><span id="status-label">Connecting</span></div>
+        <details id="space-menu" class="space-menu"><summary id="space-menu-label">All Spaces</summary><div class="space-menu-content"><p>Spaces</p><div id="space-list" class="space-list"></div></div></details>
+        <a class="sidebar-settings" href="/settings"><span class="nav-icon" aria-hidden="true"></span>Settings</a>
         </div>
-        <div id="filter-panel" class="filter-panel" hidden>
+      </aside>
+      <div id="workbench" class="workbench">
+      <aside id="project-pane" class="project-pane" aria-label="Projects" hidden><div class="panel-heading"><h2>Projects</h2><button id="pane-create-project" class="secondary-button create-project-icon" type="button" disabled aria-label="Create project" title="Create project"><img src="/fluent-add-circle.svg" width="20" height="20" alt=""></button></div><p>Filter all tasks</p><input id="project-search" type="search" placeholder="Filter projects" aria-label="Search projects"><label class="field-label">Project status<select id="project-status"><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option><option value="all">All projects</option></select></label><details class="control-menu"><summary>Sort projects</summary><div class="control-menu-content"><label>Sort<select id="project-sort" aria-label="Sort projects"><option value="name">Name</option><option value="count">Open task count</option><option value="default">Default order</option><option value="created">Created date</option><option value="updated">Updated date</option></select></label><label>Direction<select id="project-direction"><option value="default">Ascending</option><option value="reverse">Descending</option></select></label><label class="check-label"><input id="project-favorites" type="checkbox" checked>Favorites first</label></div></details><div id="project-list" class="space-list"></div></aside>
+      <div id="workspace-main" class="workspace-main">
+        <header class="workspace-header"><div><p id="workspace-eyebrow" class="workspace-eyebrow">Inbox</p><h1 id="workspace-title">Inbox</h1><p id="workspace-subtitle">Capture first. Organize when it helps.</p></div><div class="workspace-actions"><button id="show-projects" class="quiet-button" type="button" aria-controls="project-pane" aria-expanded="false" hidden>Projects</button><button id="header-add-task" class="quiet-button" type="button" disabled>Add task</button><details id="workspace-menu" class="control-menu"><summary aria-label="Workspace actions">More</summary><div class="control-menu-content"><button id="manage-workspace" type="button" class="quiet-button">Manage workspace</button><button id="retry" class="quiet-button" type="button">Refresh tasks</button></div></details></div></header>
+        <div id="task-content">
+        <div class="task-toolbar">
+          <label class="search-box"><input id="task-search" type="search" placeholder="Search tasks" aria-label="Search tasks" autocomplete="off"></label>
+          <details id="sort-menu" class="control-menu"><summary id="sort-menu-label">Sort: Priority Asc</summary><div class="control-menu-content"><label>Sort<select id="sort-select"><option value="priority">Priority</option><option value="date">Date</option><option value="created">Created</option><option value="title">Title</option><option value="project">Project</option></select></label><label>Direction<select id="sort-direction"><option value="default">Ascending</option><option value="reverse">Descending</option></select></label></div></details>
+          <details id="group-menu" class="control-menu"><summary id="group-menu-label">Group: None</summary><div class="control-menu-content"><label>Group<select id="group-select"><option value="none">None</option><option value="date">Date</option><option value="project">Project</option><option value="status">Status</option><option value="priority">Priority</option><option value="label">Label</option><option value="source">Source</option><option value="repeat">Repeating</option><option value="created">Created date</option><option value="completed">Completed date</option></select></label></div></details>
+          <button id="toggle-filters" popovertarget="filter-panel" class="toolbar-button" type="button" aria-expanded="false" aria-controls="filter-panel">Filters</button>
+        </div>
+        <div id="active-filters" class="active-filters" aria-label="Active filters"></div><div id="search-options" class="filter-panel" hidden><label>Search scope<select id="search-scope"><option value="current">Current Space</option><option value="all">All Spaces</option></select></label><label><input id="search-completed" type="checkbox"> Include completed</label></div>
+        <div id="filter-panel" class="filter-panel task-filter-popover" popover="auto">
           <label>Status<select id="status-filter"><option value="">Any</option><option value="inbox">Inbox</option><option value="next">Next</option><option value="waiting">Waiting</option><option value="someday">Someday</option><option value="none">None</option></select></label>
           <label>Priority<select id="priority-filter"><option value="">Any</option><option value="1">Urgent</option><option value="2">High</option><option value="3">Normal</option><option value="4">Low</option></select></label>
           <label>Label<select id="label-filter"><option value="">Any</option></select></label>
           <label>Source<select id="source-filter"><option value="">Any</option><option value="openza">Openza</option></select></label>
-          <button id="clear-filters" class="secondary-button" type="button">Clear</button>
+          <label>Repeating<select id="repeat-filter"><option value="">Include</option><option value="exclude">Exclude</option><option value="only">Only</option></select></label>
+          <button id="clear-filters" class="secondary-button" type="button">Reset filters</button>
         </div>
+        <details id="initial-sync-status" class="initial-sync-status" aria-label="Desktop initial upload" hidden>
+          <summary id="initial-sync-title" role="status" aria-live="polite" aria-atomic="true"></summary><div><p id="initial-sync-detail"></p><ul id="initial-sync-devices"></ul></div>
+          <button id="initial-sync-refresh" class="secondary-button" type="button">Refresh upload status and tasks</button>
+        </details>
         <div id="notice" class="workspace-notice" aria-live="polite"><strong>Checking Personal Cloud…</strong><span>Confirming the latest synchronized tasks.</span></div>
-        <div id="task-list" class="task-list" aria-busy="true"></div><p id="last-updated" class="last-updated"></p>
+        <div id="task-list" class="task-list" aria-busy="true"></div><p id="last-updated" class="last-updated"></p></div>
+      </div>
       </div>
     </section>
 
@@ -91,24 +112,42 @@
       <div class="dialog-heading"><div><p class="section-label">Openza task</p><h2>Add task</h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
       <label>Title<input id="new-title" required maxlength="500" autofocus></label><label>Notes<textarea id="new-notes" rows="4"></textarea></label>
       <div class="form-grid"><label>Space<select id="new-space"></select></label><label>Project<select id="new-project"><option value="">No project</option></select></label></div>
-      <div class="form-grid"><label>Status<select id="new-status"><option value="inbox">Inbox</option><option value="next">Next</option><option value="waiting">Waiting</option><option value="someday">Someday</option><option value="none">None</option></select></label><label>Priority<select id="new-priority"><option value="1">Urgent</option><option value="2" selected>High</option><option value="3">Normal</option><option value="4">Low</option></select></label></div>
+      <div class="form-grid"><label>Status<select id="new-status"><option value="inbox">Inbox</option><option value="next">Next</option><option value="waiting">Waiting</option><option value="someday">Someday</option><option value="none">None</option></select></label><label>Priority<select id="new-priority"><option value="1">Urgent</option><option value="2">High</option><option value="3" selected>Normal</option><option value="4">Low</option></select></label></div>
       <div class="form-grid"><label>Planned date<input id="new-planned" type="date"></label><label>Deadline<input id="new-deadline" type="date"></label></div><label>Labels<input id="new-labels" placeholder="Focus, Review"></label>
-      <div class="dialog-actions"><button class="secondary-button" type="button" data-close-dialog>Cancel</button><button id="create-task" type="submit" value="default">Add task</button></div>
+      <div class="dialog-actions"><button class="secondary-button" type="button" data-close-dialog>Cancel</button><button id="create-open-task" class="secondary-button" type="submit" value="open">Create and open</button><button id="create-task" type="submit" value="default">Create</button></div>
     </form></dialog>
 
-    <dialog id="details-dialog" class="task-dialog details-dialog"><form id="details-form" method="dialog">
-      <div class="dialog-heading"><div><p id="details-source" class="section-label">Openza task</p><h2>Task details</h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
-      <label>Title<input id="details-title" required maxlength="500"></label><label>Notes<textarea id="details-notes" rows="5"></textarea></label>
-      <div class="form-grid"><label>Space<select id="details-space"></select></label><label>Project<select id="details-project"><option value="">No project</option></select></label></div>
-      <div class="form-grid"><label>Status<select id="details-status"><option value="inbox">Inbox</option><option value="next">Next</option><option value="waiting">Waiting</option><option value="someday">Someday</option><option value="none">None</option></select></label><label>Priority<select id="details-priority"><option value="1">Urgent</option><option value="2">High</option><option value="3">Normal</option><option value="4">Low</option></select></label></div>
-      <div class="form-grid"><label>Planned date<input id="details-planned" type="date"></label><label>Deadline<input id="details-deadline" type="date"></label></div>
-      <div><span class="field-label">Labels</span><div id="details-labels" class="label-editor"></div><div class="label-add"><select id="details-add-label"><option value="">Choose label</option></select><button id="add-existing-label" class="secondary-button" type="button">Add</button></div></div>
+    <dialog id="details-dialog" class="task-dialog details-dialog" aria-label="Task details"><form id="details-form" method="dialog">
+      <div class="detail-title-row"><input id="details-completion" type="checkbox" aria-label="Task completed"><div class="detail-title-content"><label class="details-title-field"><span class="visually-hidden">Title</span><textarea id="details-title" required maxlength="500" rows="1"></textarea></label><p id="details-source" class="section-label">Openza task</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div><div class="panel-heading"><h3 class="organize-heading">Organize</h3><details id="copy-task-menu" class="control-menu"><summary>Copy</summary><div class="control-menu-content"><button type="button" class="quiet-button" data-readonly-navigation data-copy-task="title">Copy title</button><button type="button" class="quiet-button" data-readonly-navigation data-copy-task="notes">Copy notes</button><button id="copy-source" type="button" class="quiet-button" data-readonly-navigation data-copy-task="source">Copy source</button><button type="button" class="quiet-button" data-readonly-navigation data-copy-task="metadata">Copy task information</button></div></details></div><span id="details-save-status" role="status" aria-live="polite">Saved</span><p id="details-command-status" role="status" aria-live="polite" hidden></p>
+      <div class="detail-properties"><label>Status<select id="details-status"><option value="inbox">Inbox</option><option value="next">Next</option><option value="waiting">Waiting</option><option value="someday">Someday</option><option value="none">None</option></select></label><label>Project<select id="details-project"><option value="">No project</option></select></label>
+      <label>Date<input id="details-planned" type="date"><small id="details-planned-hint"></small></label><label>Deadline<input id="details-deadline" type="date"></label>
+      <label>Priority<select id="details-priority"><option value="1">Urgent</option><option value="2">High</option><option value="3">Normal</option><option value="4">Low</option></select></label><label>Space<select id="details-space"></select></label></div>
+      <details id="schedule-metadata" class="schedule-metadata"><summary>Schedule and recurrence</summary><p id="details-date-metadata"></p></details>
+      <div><span class="field-label">Labels</span><div id="details-labels" class="label-editor"></div><div class="label-add"><select id="details-add-label" aria-label="Choose label"><option value="">Choose label</option></select><button id="add-existing-label" class="secondary-button" type="button">Add</button></div><div class="label-add"><input id="details-new-label" maxlength="200" placeholder="Find or create a label" aria-label="New label name"><button id="add-new-label" class="secondary-button" type="button">Create label</button></div></div>
+      <label class="details-notes-field">Notes<textarea id="details-notes" rows="7"></textarea></label>
       <section id="source-panel" class="source-panel" hidden><strong>Source task</strong><p id="source-copy"></p><a id="source-link" target="_blank" rel="noreferrer">Open in provider</a></section>
       <section id="subtasks-panel" class="source-panel" hidden><strong>Subtasks</strong><div id="details-subtasks"></div></section>
-      <div class="dialog-actions split"><button id="delete-task" class="danger-button" type="button">Delete</button><span></span><button id="toggle-complete" class="secondary-button" type="button">Complete</button><button type="submit" value="default">Save changes</button></div>
+      <div id="details-conflict-actions" class="conflict-actions" hidden><button id="copy-conflict-draft" type="button" class="secondary-button" data-readonly-navigation>Copy draft</button><button id="reload-conflict-task" type="button" class="secondary-button" data-readonly-navigation>Load latest task</button></div><dl class="task-metadata"><div><dt>Created</dt><dd id="details-created"></dd></div><div><dt>Updated</dt><dd id="details-updated">Unknown for this historical task</dd></div></dl><p id="details-upgrade-message" hidden>Update Personal Cloud to edit task fields or move task trees.</p><div class="dialog-actions split"><button id="delete-task" class="danger-button" type="button">Delete</button><span></span><button id="toggle-complete" class="secondary-button" type="button">Complete</button><button id="details-save" type="submit" value="default">Save changes</button></div>
     </form></dialog>
 
     <footer id="site-footer"><span>Passkey-protected owner session</span><span aria-hidden="true">·</span><span>No provider credentials in the cloud</span></footer>
+    <dialog id="unsaved-dialog" class="task-dialog" aria-labelledby="unsaved-heading"><div class="unsaved-content"><h2 id="unsaved-heading">Save your task changes?</h2><p>Your edits are still in this editor. Save them or discard them before leaving.</p><p id="unsaved-error" class="dialog-error" role="alert" hidden></p><div class="unsaved-actions"><button id="keep-editing" class="secondary-button" type="button">Keep editing</button><button id="discard-details" class="secondary-button" type="button">Discard changes</button><button id="save-before-leaving" type="button">Save changes</button></div></div></dialog>
+    <dialog id="confirmation-dialog" class="task-dialog" aria-labelledby="confirmation-heading" aria-describedby="confirmation-message"><form method="dialog"><h2 id="confirmation-heading"></h2><p id="confirmation-message"></p><div class="dialog-actions"><button type="submit" class="secondary-button" value="cancel" formnovalidate>Cancel</button><button id="confirm-action" type="submit" class="danger-button" value="confirm">Confirm</button></div></form></dialog>
+    <dialog id="global-search-dialog" class="task-dialog" aria-labelledby="global-search-heading"><div class="global-search-content"><div class="dialog-heading"><h2 id="global-search-heading">Search</h2><button type="button" class="icon-button" data-close-dialog aria-label="Close search">×</button></div><label>Search tasks and projects<input id="global-search-input" type="search" autofocus></label><div id="global-search-options"></div><p id="global-search-status" role="status"></p><div id="global-search-results"></div><div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>Cancel</button></div></div></dialog>
     <noscript>This app needs JavaScript to synchronize current task data.</noscript>
-  </body>
+
+  <dialog id="workspace-dialog" class="workspace-dialog" aria-label="Manage workspace"><div class="dialog-heading"><h2 id="workspace-dialog-title">Manage workspace</h2><button type="button" class="icon-button" data-close-dialog aria-label="Close workspace management">×</button></div><p id="workspace-message" role="status" aria-live="polite"></p>
+    <section id="workspace-references" class="management-section">
+    <h3>Spaces</h3><div id="managed-spaces"></div><button id="create-space" type="button">Create Space</button>
+    <h3>Projects</h3><div id="managed-projects"></div><button id="create-project" type="button">Create project</button>
+    <form id="reference-form" hidden><h3 id="reference-kind"></h3><label>Name<input id="reference-name" required maxlength="512"></label><label>Color<input id="reference-color" maxlength="64"></label>
+      <div id="space-reference-fields"><label><input id="reference-archived" type="checkbox">Archived</label></div>
+      <div id="project-reference-fields"><label>Space<select id="reference-space"></select></label><label>Description<textarea id="reference-description" maxlength="4096"></textarea></label><label>Status<select id="reference-status"><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option></select></label><label><input id="reference-favorite" type="checkbox">Favorite</label></div>
+      <div class="dialog-actions"><button id="reference-cancel" type="button" class="secondary-button">Cancel</button><button type="submit">Save changes</button><button id="reference-delete" type="button" class="danger-button" hidden>Delete project</button></div>
+      <div id="project-delete-confirmation" hidden><p>Delete this project and move its tasks to Inbox? This removes the project from your workspace.</p><button id="confirm-project-delete" type="button" class="danger-button">Confirm project deletion</button><button id="cancel-project-delete" type="button">Cancel deletion</button></div>
+    </form>
+    </section>
+  </dialog>
+
+</body>
 </html>
