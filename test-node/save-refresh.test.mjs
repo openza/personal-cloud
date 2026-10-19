@@ -11,7 +11,7 @@ class Element {
   classList={values:new Set(),toggle:(key,on)=>on?this.classList.values.add(key):this.classList.values.delete(key),contains:key=>this.classList.values.has(key),remove(){}};
   append(...items){this.children.push(...items);}replaceChildren(...items){this.children=items;this.textContent='';}
   addEventListener(name,action){this.handlers[name]=action;}hasAttribute(key){return this.attributes.has(key);}setAttribute(key){this.attributes.add(key);}
-  after(){}focus(){}checkValidity(){return true;}show(){this.open=true;}showModal(){this.open=true;}close(){this.open=false;}
+  querySelectorAll(){return [];}after(){}focus(){}checkValidity(){return true;}show(){this.open=true;}showModal(){this.open=true;}close(){this.open=false;}
 }
 function setup(){
   const nodes=new Map(),get=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);},dialog=get('details-dialog');
@@ -21,7 +21,7 @@ function setup(){
   let server={...task},mode='online',writes=0,signouts=0,opens=0,error='',deferred;
   const payload=()=>({tasks:[{...server}],spaces:[{id:'space_a'}],projects:[],labels:[],instanceId:'local'}),cached=payload();
   const context=vm.createContext({ownerSessionGeneration:0,detailEditorGeneration:0,detailPendingSave:null,detailTaskUnavailable:false,detailTaskBaseline:null,detailBaseline:{},selectedTaskId:null,detailLabelBusy:false,currentEditable:true,csrfToken:'synthetic',currentPayload:cached,taskLoadInFlight:null,lastConfirmed:{payload:cached,savedAt:'before'},workspaceSupported:()=>true,taskTextError,taskSaveError,
-    $:selector=>get(selector.slice(1)),detailsDialog:dialog,document:{getElementById:get,activeElement:get('details-notes'),body:{classList:{remove(){}}}},localStorage:{setItem(){}},cacheKey:'cache',formatTime:v=>v,localDate:d=>d.toISOString().slice(0,10),fillSpaceSelect(){},fillProjectSelect(){},renderDetailLabels(){},renderSource(){},renderSubtasks(){},updateWorkbenchLayout(){},plannedEdit:()=>null,
+    $:selector=>get(selector.slice(1)),detailsDialog:dialog,taskDialog:get('task-dialog'),document:{getElementById:get,activeElement:get('details-notes'),body:{classList:{remove(){}}}},localStorage:{setItem(){}},cacheKey:'cache',formatTime:v=>v,localDate:d=>d.toISOString().slice(0,10),fillSpaceSelect(){},fillProjectSelect(){},renderDetailLabels(){},renderSource(){},renderSubtasks(){},updateWorkbenchLayout(){},plannedEdit:()=>null,
     clearDialogError(){error='';},showDialogError(_dialog,message){error=message;},setNotice(){},setStatus(){},clearTaskTimers(){},scheduleTaskTimers(){},taskList:{setAttribute(){}},setTimeout:()=>0,clearTimeout(){},retryRefreshMs:1,sessionTimer:null,readCache:()=>cached,
     workspaceControls:{stop(){}},initialStatusMonitor:{stop(){}},pendingCreatedTaskId:null,deliveryCursor:null,featureHealth:null,tasksPanel:get('tasks-panel'),devicesPanel:get('devices-panel'),authPanel:get('auth-panel'),setupForm:get('setup-form'),recoveryForm:get('recovery-form'),signinActions:get('signin-actions'),authCopy:get('auth-copy'),
     api:async path=>{if(path==='/auth/signout')signouts++;return{};},rotateSession:async()=>{},readAllTasks:async()=>{if(mode==='lagging')return cached;if(mode==='offline')throw new Error('Read unavailable');if(mode==='unauthorized')throw Object.assign(new Error('Signed out'),{status:401});if(mode==='deferred')return await new Promise(resolve=>deferred=resolve);return payload();},
