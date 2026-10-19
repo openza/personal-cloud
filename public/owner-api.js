@@ -1,11 +1,13 @@
 // HTTP owns serialization, CSRF retry and the session boundary. It never renders.
+import {typedQuota,workers1027,boundedErrorText,responseTime,nextUtcReset} from './quota-errors.js?v=quota-1';
+import {requestCredits} from './dispatch-cost.js?v=quota-1';
 export function sessionChanged(dispatched = false) {
   return Object.assign(new Error("The owner session changed. Retry from the current session."), {
     code: "session_changed", dispatched,
   });
 }
 
-export function createOwnerApi({ fetch, locks, getGeneration, getCsrf, setCsrf }) {
+export function createOwnerApi({ fetch, locks, getGeneration, getCsrf, setCsrf, brake }) {
   return async function api(path, options = {}) {
     const generation = getGeneration();
     const body = options.body === undefined ? undefined : JSON.stringify(options.body);
@@ -25,12 +27,33 @@ export function createOwnerApi({ fetch, locks, getGeneration, getCsrf, setCsrf }
         }
         let response, result;
         try {
-          dispatched = true;
-          response = await fetch(path, { method: options.method || "GET", headers, body,
-            credentials: "same-origin", cache: "no-store", signal: options.signal });
-          assertCurrent();
-          result = await response.json().catch(() => ({}));
-          assertCurrent();
+          const send=async()=>{
+            assertCurrent();dispatched=true;
+            const deadline=path==='/health'&&brake?.status()?AbortSignal.timeout(10000):null;
+            const signal=deadline?(options.signal?AbortSignal.any([deadline,options.signal]):deadline):options.signal;
+            const response=await fetch(path,{method:options.method||'GET',headers,body,credentials:'same-origin',cache:'no-store',signal});
+            // Quota is origin-scoped: persist it even if the initiating session retired.
+            let result;
+            const type=response.headers?.get?.('content-type')?.split(';')[0].trim().toLowerCase();
+            const reference=brake?.referenceTime()??Date.now(),observed=responseTime(response.headers,reference);
+            if(!response.ok&&['text/html','text/plain'].includes(type)){
+              const text=await boundedErrorText(response);
+              if(workers1027(response.status,response.headers,text)){
+                const quota={protocolVersion:1,resource:'workers_requests',resetAt:nextUtcReset(new Date(observed))};
+                await brake?.pause(quota,observed);
+                throw Object.assign(new Error('Personal Cloud reached its daily Cloudflare request limit.'),{code:'daily_quota_exceeded',status:503,quota});
+              }
+              result={};
+            }else result=await response.json().catch(()=>({}));
+            const quota=(!response.ok||path==='/v1/tasks/mutations/batch')?typedQuota(result,observed):null;
+            if(quota)await brake?.pause(quota,observed);
+            assertCurrent();
+            // A successful sequential batch must retain its validated receipt prefix.
+            return {response,result};
+          };
+          const envelopes=path==='/v1/tasks/mutations'?1:path==='/v1/tasks/mutations/batch'?options.body?.mutations?.length??0:0;
+          const sent=brake?await brake.run(path,envelopes,send,requestCredits(path,options.body)):await send();
+          response=sent.response;result=sent.result;assertCurrent();
         } catch (error) {
           assertCurrent();
           throw error;
@@ -38,6 +61,7 @@ export function createOwnerApi({ fetch, locks, getGeneration, getCsrf, setCsrf }
         if (response.ok) return result;
         const error = Object.assign(new Error(result?.error?.message || "Personal Cloud rejected the request."), {
           status: response.status, code: result?.error?.code,
+          ...(result?.error?.quota?{quota:result.error.quota}:{}),
         });
         if (options.csrf && attempt === 0 && response.status === 403 && error.code === "csrf_failed") {
           // This attempt was definitively rejected before domain execution.

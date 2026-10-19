@@ -1,3 +1,4 @@
+import {throwDailyQuota} from "./daily-quota.ts";
 import { ContractError, parseStrictJson, type JsonValue } from "./protocol.ts";
 
 const challengeLifetimeMs = 5 * 60_000;
@@ -67,6 +68,7 @@ export async function finishOwnerBootstrap(request: Request, env: AuthEnv, raw: 
       insertSession(env.DB, session, credential.id, now, expiresAt, absoluteExpiresAt),
     ]);
   } catch (error) {
+    throwDailyQuota(error);
     if ((await authStatus(env.DB)).initialized) throw new ContractError("already_initialized", "Owner setup is already complete.");
     throw error;
   }
@@ -107,7 +109,8 @@ export async function finishSignIn(request: Request, env: AuthEnv, raw: string):
         .bind(nextCount, now.toISOString(), stored.credential_id, stored.sign_count),
       insertSession(env.DB, session, stored.credential_id, now, expiresAt, absoluteExpiresAt),
     ]);
-  } catch {
+  } catch (error) {
+    throwDailyQuota(error);
     throw unauthorized();
   }
   return sessionResponse({ protocolVersion: 1, outcome: "authenticated", csrfToken: session.csrfToken }, session.token, expiresAt);

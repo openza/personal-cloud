@@ -22,7 +22,7 @@ function setup(){
  taskDialog.querySelectorAll=()=>newFields.map(get);detailsDialog.querySelectorAll=()=>detailFields.map(get);
  const task={id:'task_a',title:'Synthetic task',notes:null,spaceId:'space_a',projectId:null,workflowStatus:'inbox',priority:3,
   plannedOn:null,plannedAt:null,deadlineOn:null,deadlineAt:null,labels:[],entityVersion:1,createdAt:'2026-10-19T00:00:00Z'};
- const context=vm.createContext({ownerSessionGeneration:0,currentEditable:true,csrfToken:'old',workspaceSupported:()=>true,
+ const context=vm.createContext({cloudBrake:{status:()=>null},networkFailures:0,rotationFailures:0,ownerSessionGeneration:0,currentEditable:true,csrfToken:'old',workspaceSupported:()=>true,
   taskDialog,detailsDialog,currentPayload:{tasks:[task],spaces:[{id:'space_a'}],projects:[],labels:[]},selectedTaskId:null,selectedSpaceId:'space_a',selectedProjectId:null,currentView:'inbox',
   detailEditorGeneration:0,detailPendingSave:null,detailLabelBusy:false,detailTaskUnavailable:false,detailBaseline:{},detailTaskBaseline:null,
   detailAutosave:{reset(){}},taskTextError,parseLabels:uniqueLabelNames,crypto:{randomUUID:()=> 'synthetic-id'},

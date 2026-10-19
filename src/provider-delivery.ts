@@ -1,3 +1,4 @@
+import {throwDailyQuota} from "./daily-quota.ts";
 import { ContractError, parseStrictJson } from "./protocol.ts";
 
 export type DeliveryClaim = {
@@ -44,7 +45,7 @@ export async function claimDelivery(db:D1Database, request:DeliveryClaim):Promis
       integration_kind,external_id_hash,state,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,'reserved',?8)`)
       .bind(request.claimId,request.taskId,request.requestedChangeSeq,request.deviceId,current.command,
         request.integrationKind,request.externalIdHash,now),
-  ]);}catch(error){const raced=await findClaim(db,request.claimId);if(raced){requireSame(raced,request);return raced;}
+  ]);}catch(error){throwDailyQuota(error);const raced=await findClaim(db,request.claimId);if(raced){requireSame(raced,request);return raced;}
     if(String(error).includes("provider source ambiguous"))throw new ContractError("source_identity_conflict","Multiple live Openza tasks link to this provider source.");
     if(String(error).includes("provider delivery superseded"))throw new ContractError("command_superseded","The provider request changed before it was claimed.");
     if(await db.prepare(`SELECT 1 FROM provider_delivery_claims WHERE
@@ -60,7 +61,7 @@ export async function startDelivery(db:D1Database,claimId:string,deviceId:string
   if(claim.state!=="reserved")return claim;
   try {await db.prepare(`UPDATE provider_delivery_claims SET state='started',started_at=?1 WHERE claim_id=?2 AND state='reserved'`)
     .bind(new Date().toISOString(),claimId).run();}
-  catch(error){const ambiguous=String(error).includes("provider source ambiguous");
+  catch(error){throwDailyQuota(error);const ambiguous=String(error).includes("provider source ambiguous");
     if(!ambiguous&&!String(error).includes("provider delivery superseded"))throw error;
     await db.prepare(`UPDATE provider_delivery_claims SET state='cancelled',resolved_at=?1 WHERE claim_id=?2 AND state='reserved'`)
       .bind(new Date().toISOString(),claimId).run();
@@ -129,7 +130,7 @@ export async function retryDelivery(db:D1Database,request:DeliveryClaim){
     db.prepare(`UPDATE provider_command_retries SET new_change_seq=(SELECT change_seq FROM changes WHERE mutation_id=?1) WHERE retry_id=?2`)
       .bind(mutationId,request.claimId),
     db.prepare(`UPDATE cloud_state SET next_change_seq=(SELECT change_seq FROM changes WHERE mutation_id=?1) WHERE singleton=1`).bind(mutationId),
-  ]);}catch(error){const raced=await find();if(raced)return respond(raced);
+  ]);}catch(error){throwDailyQuota(error);const raced=await find();if(raced)return respond(raced);
     if(String(error).includes("provider retry superseded"))throw new ContractError("command_superseded","Only the current rejected provider request can be retried.");
     throw error;}
   return respond((await find())!);

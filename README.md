@@ -10,6 +10,7 @@ Every synchronized row belongs to the same Openza `tasks` collection. A task may
 - Openza task title, workflow status, priority, planning, completion/reopen, deletion, project, Space, label, and parent operations.
 - Safe source-linked tasks, source refresh, pending desktop commands, provider confirmation/rejection, coalescing, stale refresh rejection, and multi-desktop resolution.
 - A Web task experience that uses the same semantic operations and becomes read-only when only stale cached data is available.
+- Typed daily-limit pauses, durable local dispatch reservations and bounded idle polling. See the [quota contract and measurement limits](docs/quota-pause-v1.md).
 - Task views, add/edit, completion/reopen, deletion, search, sorting, grouping, Spaces, projects, labels and responsive navigation. Native subtask creation is not offered; adopted provider task hierarchies are preserved.
 - Full-list Web loading in bounded pages, with restart on concurrent changes rather than publishing a truncated or mixed task list. Search and filters operate on the completed read.
 - Owner WebAuthn passkey setup and sign-in, secure opaque sessions, rotation, expiry, CSRF/origin enforcement, sign-out, recovery-code rotation, and revocation of lost credentials.
@@ -24,6 +25,7 @@ npm install
 npm run typecheck
 npm run test:rebootstrap
 npm run test:web
+npm run test:quota
 npm test
 npx wrangler d1 migrations apply DB --local
 npx wrangler dev --local

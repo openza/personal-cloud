@@ -19,7 +19,7 @@ test('a repeated CSRF rejection stops after one retry and preserves the exact fa
  const rejection={status:403,body:{error:{code:'csrf_failed'}}},h=harness([rejection,{status:200,body:{csrfToken:'fresh'}},rejection]);await assert.rejects(h.context.api('/write',{method:'POST',csrf:true,body:{}}),e=>e.code==='csrf_failed');assert.equal(h.calls.length,3);
 });
 test('failed saves replace Saving with an explicit unconfirmed outcome',async()=>{
- const seen=[],context=vm.createContext({ownerSessionGeneration:0,currentInstanceId:'local',deviceId:'web',setStatus:(...a)=>seen.push(a),setNotice:(...a)=>seen.push(a),submitMutation:async()=>{throw Object.assign(new Error('Rejected'),{status:409});}});vm.runInContext(source.match(/^async function sendMutation\(.*$/m)[0],context);await assert.rejects(context.sendMutation('task',1,'task.patch',{}));assert.deepEqual(seen[1],['unavailable','Save not confirmed']);assert.equal(seen[2][0],'Change not confirmed');
+ const seen=[],context=vm.createContext({cloudBrake:{status:()=>null},networkFailures:0,rotationFailures:0,ownerSessionGeneration:0,currentInstanceId:'local',deviceId:'web',setStatus:(...a)=>seen.push(a),setNotice:(...a)=>seen.push(a),submitMutation:async()=>{throw Object.assign(new Error('Rejected'),{status:409});}});vm.runInContext(source.match(/^async function sendMutation\(.*$/m)[0],context);await assert.rejects(context.sendMutation('task',1,'task.patch',{}));assert.deepEqual(seen[1],['unavailable','Save not confirmed']);assert.equal(seen[2][0],'Change not confirmed');
 });
 function queuedApi(responses){const h=harness(responses),map=new Map();let id=0;const sender=createMutationSender({storage:{getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k)},locks:h.context.navigator.locks,sequenceKey:'sequence',makeId:()=>`mutation_${++id}`,now:()=>new Date(0).toISOString(),send:body=>h.context.api('/write',{method:'POST',csrf:true,body})});return{...h,map,send:entity=>sender('local','web',entity,1,'task.delete',{})};}
 const acceptBody=(_path,options)=>{const body=JSON.parse(options.body);return{status:201,body:{outcome:'accepted',mutationId:body.mutationId,entityId:body.entityId}};};
@@ -47,14 +47,14 @@ test('late CSRF refresh cannot install a token or replay an old intent',async()=
 });
 test('late session rotation cannot install its token or schedule the old session',async()=>{
  const gate=deferred();let schedules=0;
- const context=vm.createContext({ownerSessionGeneration:0,csrfToken:'old',api:()=>gate.promise,scheduleSessionRotation:()=>schedules++});
+ const context=vm.createContext({cloudBrake:{status:()=>null},networkFailures:0,rotationFailures:0,ownerSessionGeneration:0,csrfToken:'old',api:()=>gate.promise,scheduleSessionRotation:()=>schedules++});
  vm.runInContext(source.match(/^async function rotateSession\(.*$/m)[0],context);
  const pending=context.rotateSession();context.ownerSessionGeneration++;context.csrfToken='next';gate.resolve({csrfToken:'late'});await pending;
  assert.equal(context.csrfToken,'next');assert.equal(schedules,0);
 });
 test('late unauthorized rotation cannot sign out or schedule retries in the next session',async()=>{
  const gate=deferred();let signouts=0,retries=0;
- const context=vm.createContext({ownerSessionGeneration:0,rotateSession:()=>gate.promise,signOut:()=>signouts++,setTimeout:()=>retries++,retryRefreshMs:1});
+ const context=vm.createContext({cloudBrake:{status:()=>null},networkFailures:0,rotationFailures:0,ownerSessionGeneration:0,rotateSession:()=>gate.promise,signOut:()=>signouts++,setTimeout:()=>retries++,retryRefreshMs:1});
  vm.runInContext(source.match(/^async function renewActiveSession\(.*$/m)[0],context);
  const pending=context.renewActiveSession();context.ownerSessionGeneration++;gate.resolve(Promise.reject(Object.assign(Error('old unauthorized'),{status:401})));await pending;
  assert.equal(signouts,0);assert.equal(retries,0);

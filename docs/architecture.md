@@ -11,6 +11,8 @@ the existing design. Shared semantics live in the [workspace contract](workspace
 | --- | --- |
 | Routes, shared task snapshot/freshness, selected Space/view/project, editor state and rendering composition | `public/app.js` |
 | HTTP serialization, owner-session generation/lock and single explicit CSRF retry | `public/owner-api.js` |
+| Origin-scoped quota pause, atomic daily reservations and serialized resume probe | `public/cloud-brake.js` |
+| Bounded quota/edge signal parsing and shared conservative operation costs | `public/quota-errors.js`, `public/dispatch-cost.js`; canonical cost fixture in `test/fixtures/dispatch-budget-v1.json` |
 | Durable mutation envelope, replica sequence/lock, exact replay and receipt confirmation | `public/mutation-queue.js` |
 | Complete, revision-consistent paged task read | `public/task-pages.js`; the app publishes/caches the completed snapshot |
 | Pure filtering, search, ordering, grouping and date membership | `public/workspace-query.js` |
@@ -33,6 +35,13 @@ storage. The mutation sender stores its replica sequence and pending envelope
 through injected durable storage. CSRF stays in memory; the owner session cookie
 is HttpOnly. Signout does not erase cached task data. See [security](../SECURITY.md)
 and [session/upgrade invariants](cloud-upgrade-v1.md).
+
+Quota state participates in the common HTTP boundary, including health, auth and
+optional status calls. It preserves the mutation sender's pending envelope and
+sequence. Desktop and Web ledgers are independent safeguards, not an account-wide
+allowance. Worker D1 classification lives in `src/daily-quota.ts`; callers classify
+before diagnostic SQL or generic auth/conflict translation. See the
+[quota contract](quota-pause-v1.md) for polling, clocks, cost policy and evidence limits.
 
 ## Where new work belongs
 

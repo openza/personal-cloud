@@ -1,3 +1,4 @@
+import {throwDailyQuota} from "./daily-quota.ts";
 // Schema 25 readiness checks metadata and resolves required columns without reading rows.
 // This is a readiness contract, not a replacement for checksum migration preflight.
 const requiredColumns: Record<string, readonly string[]> = {
@@ -137,7 +138,8 @@ export async function schemaReady(db: D1Database): Promise<boolean> {
     if (results.length !== 2 || results.some(result => !result.success)) return false;
     const found = new Set(results[0].results.map(item => JSON.stringify([item.type,item.name,item.tbl_name])));
     return requiredObjects.every(item => found.has(JSON.stringify(item)));
-  } catch {
+  } catch (error) {
+    throwDailyQuota(error);
     // Empty, incomplete and unavailable bindings share one public health failure.
     return false;
   }

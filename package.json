@@ -12,7 +12,9 @@
     "test:web": "node --test test-node/presentation-parity.test.mjs test-node/row-actions.test.mjs test-node/task-pages.test.mjs test-node/mutation-queue.test.mjs test-node/provider-status.test.mjs test-node/workspace-query.test.mjs test-node/workspace-state.test.mjs test-node/workspace-controls.test.mjs test-node/initial-sync-status.test.mjs test-node/web-syntax.test.mjs test-node/workbench-layout.test.mjs test-node/owner-api.test.mjs test-node/owner-settings.test.mjs test-node/dialog-session.test.mjs test-node/search-lifecycle.test.mjs test-node/completion-features.test.mjs test-node/save-refresh.test.mjs test-node/delivery-recovery.test.mjs",
     "typecheck": "tsc --noEmit",
     "test:d1-limits": "node --test test-node/d1-limits.test.mjs",
-    "test:migrations": "node --test test-node/workspace-upgrade.test.mjs"
+    "test:migrations": "node --test test-node/workspace-upgrade.test.mjs",
+    "test:quota": "node --test test-node/quota-pause.test.mjs test-node/quota-view.test.mjs test-node/snapshot-poll.test.mjs test-node/budget-report.test.mjs",
+    "measure:budget": "node scripts/measure-budget.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.1.8",

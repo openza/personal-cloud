@@ -77,11 +77,12 @@ export function createInitialStatusMonitor({ read, render, schedule = setTimeout
     const deadline = schedule(() => controller.abort(), 10_000);
     cancel(timer);
     const promise = (async () => {
-      try { const payload = await Promise.resolve().then(() => read(controller.signal)); if (active && current === generation) render(initialStatusCopy(payload)); }
+      let nextDelay=30_000;
+      try { const payload = await Promise.resolve().then(() => read(controller.signal)); if (active && current === generation) { const copy=initialStatusCopy(payload);render(copy);if(copy.state==='complete')nextDelay=300_000; } }
       catch { if (active && current === generation) render(unavailableStatusCopy()); }
       finally {
         cancel(deadline);
-        if (active && current === generation) { pending = null; timer = schedule(refresh, 30_000); }
+        if (active && current === generation) { pending = null; timer = schedule(refresh, nextDelay); }
       }
     })();
     pending = { generation: current, promise, controller, deadline };

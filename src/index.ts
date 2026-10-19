@@ -1,3 +1,4 @@
+import {dailyQuotaError,DailyQuotaError} from "./daily-quota.ts";
 import {workspaceCapability,providerCatalogCapability} from "./workspace-protocol.ts";
 import { schemaReady } from "./schema-readiness.ts";
 import {readCatalog} from "./workspace-records.ts";
@@ -32,7 +33,7 @@ export interface Env {
   ASSETS: Fetcher;
 }
 
-const retryableCodes = new Set(["sequence_gap", "parent_not_found", "internal_error"]);
+const retryableCodes = new Set(["sequence_gap", "parent_not_found", "internal_error", "daily_quota_exceeded"]);
 const statusByCode: Record<string, number> = {
   invalid_request: 400,
   unsupported_protocol: 400,
@@ -54,6 +55,7 @@ const statusByCode: Record<string, number> = {
   stale_snapshot: 409,
   upgrade_required:409,
   schema_not_ready:503,
+  daily_quota_exceeded:503,
   bootstrap_changed:409,
   response_too_large:409,
   unauthorized: 401,
@@ -226,6 +228,7 @@ export default {
       const receipt = await applyMutation(env.DB, mutation, rawRequest);
       return Response.json(receipt, { status: receipt.outcome === "accepted" ? 201 : 200 });
     } catch (error) {
+      const quota=dailyQuotaError(error);if(quota)return errorResponse(quota);
       if (error instanceof ContractError) return errorResponse(error);
       return errorResponse(new ContractError("internal_error", "The mutation could not be applied."));
     }
@@ -286,10 +289,11 @@ function parseBoundedLimit(value: string | null): number {
 
 function errorResponse(error: ContractError): Response {
   const detail = publicMutationError(error);
-  return noStoreJson({ protocolVersion: 1, product: "tasks", error: detail }, { status: statusByCode[detail.code] ?? 500 });
+  return noStoreJson({ protocolVersion: 1, product: "tasks", error: detail }, { status: statusByCode[detail.code] ?? 500, ...(error instanceof DailyQuotaError?{headers:{"retry-after":String(Math.max(1,Math.ceil((Date.parse(error.quota.resetAt)-Date.now())/1000)))}}:{}) });
 }
 
 function publicMutationError(error: unknown) {
+  error=dailyQuotaError(error)??error;
   if (!(error instanceof ContractError)) error = new ContractError("internal_error", "The mutation could not be applied.");
   const contract = error as ContractError;
   const code = contract.code in statusByCode ? contract.code : "internal_error";
@@ -298,6 +302,7 @@ function publicMutationError(error: unknown) {
       message: code === "internal_error" ? "The mutation could not be applied." : contract.message,
       retryable: retryableCodes.has(code),
       requestId: `request_${crypto.randomUUID()}`,
+      ...(contract instanceof DailyQuotaError?{quota:contract.quota}:{}),
   };
 }
 

@@ -1,3 +1,4 @@
+import {throwDailyQuota} from "./daily-quota.ts";
 import { ContractError, parseStrictJson, type JsonValue } from "./protocol.ts";
 import { authJson, hash, randomToken, requireOwnerSession, requireRateLimit } from "./auth.ts";
 
@@ -42,7 +43,7 @@ export async function pairDevice(request: Request, db: D1Database, instanceId: s
         VALUES(?1,?2,?3,?4)`).bind(await hash(refreshCredential), deviceId, now.toISOString(),
           new Date(now.valueOf() + refreshLifetimeMs).toISOString()),
     ]);
-  } catch { throw unauthorized(); }
+  } catch (error) { throwDailyQuota(error); throw unauthorized(); }
   return authJson({ protocolVersion: 1, instanceId, deviceId, refreshCredential,
     capabilities, refreshExpiresAt: new Date(now.valueOf() + refreshLifetimeMs).toISOString() }, { status: 201 });
 }

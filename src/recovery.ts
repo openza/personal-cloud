@@ -1,3 +1,4 @@
+import {throwDailyQuota} from "./daily-quota.ts";
 import { authJson, hash, randomToken, requireRateLimit, verifyRegistrationCredential } from "./auth.ts";
 import { ContractError, parseStrictJson, type JsonValue } from "./protocol.ts";
 
@@ -58,7 +59,7 @@ export async function finishRecovery(request: Request, db: D1Database): Promise<
       db.prepare("UPDATE web_sessions SET revoked_at=COALESCE(revoked_at,?1) WHERE revoked_at IS NULL")
         .bind(now.toISOString()),
     ]);
-  } catch { throw unauthorized(); }
+  } catch (error) { throwDailyQuota(error); throw unauthorized(); }
   return authJson({ protocolVersion: 1, outcome: "recovered", recoveryCode: replacementCode,
     credentialsRevoked: true, sessionsRevoked: true });
 }

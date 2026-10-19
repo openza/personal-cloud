@@ -98,8 +98,8 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(browserCode).toContain("Unavailable · Last known");
     expect(browserCode).toContain("Cached tasks may be outdated and remain read only");
     expect(browserCode).toContain("Reconnecting to Personal Cloud");
-    expect(browserCode).toContain("45_000");
-    expect(browserCode).toContain("60_000");
+    expect(browserCode).toContain("proactiveRefreshMs=300_000");
+    expect(browserCode).toContain("proactiveRefreshMs+15000");
     expect(browserCode).toContain("retryRefreshMs=15_000");
     expect(browserCode).toContain("loadTasks({background:true})");
     expect(browserCode).toContain("readAllTasks(api)");
@@ -112,7 +112,7 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(browserCode).toContain('parameters.get("setup")');
     expect(browserCode).toContain("history.replaceState");
     const transport = await (await exports.default.fetch("https://personal-cloud.local/owner-api.js")).text();
-    expect(transport).toContain('credentials: "same-origin"');
+    expect(transport).toMatch(/credentials:\s*['"]same-origin['"]/);
     expect(transport).toContain('headers["x-openza-csrf"]');
     expect(browserCode).toContain('location.pathname==="/settings"');
     expect(browserCode).toContain("tasksPanel.hidden=false");
