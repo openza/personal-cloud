@@ -1,9 +1,13 @@
 // One durable pending envelope per browser replica. Web Locks serialize tabs.
-export function createMutationSender({ storage, locks, send, sequenceKey, makeId, now }) {
+import { sessionChanged } from "./owner-api.js?v=session-1";
+
+export function createMutationSender({ storage, locks, send, sequenceKey, makeId, now, getGeneration = () => 0 }) {
   return async function sendMutation(instanceId, deviceId, entityId, baseEntityVersion, operation, payload) {
+    const generation = getGeneration();
     if (!locks?.request) throw new Error("This browser cannot safely coordinate task writes. Use a current browser with Web Locks support.");
     const key = `${sequenceKey}:${instanceId}:${deviceId}`;
     return locks.request(`${key}:write`, async () => {
+      if (generation !== getGeneration()) throw sessionChanged();
       const pendingKey = `${key}:pending`;
       const saved = storage.getItem(pendingKey);
       let body;
@@ -23,11 +27,12 @@ export function createMutationSender({ storage, locks, send, sequenceKey, makeId
       let receipt;
       try {
         receipt = await send(body);
+        if (generation !== getGeneration()) throw sessionChanged(true);
       } catch (error) {
         // Definitive contract rejections did not consume the sequence. Keep
         // uncertain network/server/auth failures for exact replay after retry.
         // Explicit csrf_failed is rejected before any domain mutation executes.
-        if ((error.status === 403 && error.code === "csrf_failed") || (error.status >= 400 && error.status < 500 && error.status !== 401 && error.status !== 403 && error.status !== 429)) {
+        if ((!saved && error.code === "session_changed" && error.dispatched === false) || (error.status === 403 && error.code === "csrf_failed") || (error.status >= 400 && error.status < 500 && error.status !== 401 && error.status !== 403 && error.status !== 429)) {
           storage.removeItem(pendingKey);
         }
         throw error;

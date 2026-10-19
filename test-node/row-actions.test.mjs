@@ -32,7 +32,7 @@ test('row commands target the task inspector, separate repeated label groups and
 const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
 for(const rejected of [false,true])test(`repeated completion is ignored until mutation and refresh settle (${rejected?'rejected':'accepted'})`,async()=>{
   let resolveWrite,resolveRefresh,writes=0,notices=0;const states=[],completionInFlight=new Set();
-  const context=vm.createContext({detailPendingSave:null,currentEditable:true,completionInFlight,refreshCompletionButtons:id=>states.push([id,completionInFlight.has(id)]),sendMutation:()=>{writes++;return new Promise(resolve=>{resolveWrite=resolve;});},finishMutations:()=>new Promise((resolve,reject)=>{resolveRefresh=()=>rejected?reject(new Error('Synthetic failure')):resolve();}),setNotice:()=>notices++,setStatus(){}});
+  const context=vm.createContext({ownerSessionGeneration:0,detailPendingSave:null,currentEditable:true,completionInFlight,refreshCompletionButtons:id=>states.push([id,completionInFlight.has(id)]),sendMutation:()=>{writes++;return new Promise(resolve=>{resolveWrite=resolve;});},finishMutations:()=>new Promise((resolve,reject)=>{resolveRefresh=()=>rejected?reject(new Error('Synthetic failure')):resolve();}),setNotice:()=>notices++,setStatus(){}});
   vm.runInContext(source.match(/^async function toggleCompletion\(.*$/m)[0],context);
   const task={id:'task_a',entityVersion:1,completionState:'open'},first=context.toggleCompletion(task);
   await context.toggleCompletion(task);assert.equal(writes,1);resolveWrite();await new Promise(resolve=>setImmediate(resolve));
@@ -41,20 +41,20 @@ for(const rejected of [false,true])test(`repeated completion is ignored until mu
 });
 test('cancelling completion of a dirty selected task leaves its checkbox at the confirmed state',async()=>{
   const checkbox={checked:true};let writes=0,guarded=0;
-  const context=vm.createContext({detailPendingSave:null,selectedTaskId:'task_a',currentPayload:{tasks:[{id:'task_a',completionState:'open'}]},$:()=>checkbox,requestDetailsClose:()=>{guarded++;},toggleCompletion:()=>{writes++;}});
+  const context=vm.createContext({ownerSessionGeneration:0,detailPendingSave:null,selectedTaskId:'task_a',currentPayload:{tasks:[{id:'task_a',completionState:'open'}]},$:()=>checkbox,requestDetailsClose:()=>{guarded++;},toggleCompletion:()=>{writes++;}});
   vm.runInContext(source.match(/^async function toggleSelectedCompletion\(.*$/m)[0],context);
   await context.toggleSelectedCompletion();assert.equal(guarded,1);assert.equal(writes,0);assert.equal(checkbox.checked,false);
 });
 test('row completion respects the selected editor guard and reads the latest accepted version',()=>{
   let pending,written;
-  const context=vm.createContext({detailPendingSave:null,detailsDialog:{open:true},selectedTaskId:'task_a',currentPayload:{tasks:[{id:'task_a',entityVersion:1}]},requestDetailsClose:action=>{pending=action;},toggleCompletion:task=>{written=task.entityVersion;}});
+  const context=vm.createContext({ownerSessionGeneration:0,detailPendingSave:null,detailsDialog:{open:true},selectedTaskId:'task_a',currentPayload:{tasks:[{id:'task_a',entityVersion:1}]},requestDetailsClose:action=>{pending=action;},toggleCompletion:task=>{written=task.entityVersion;}});
   vm.runInContext(source.match(/^function requestRowCompletion\(.*$/m)[0],context);
   context.requestRowCompletion('task_a');assert.equal(written,undefined);
   context.currentPayload.tasks[0].entityVersion=2;pending();assert.equal(written,2);
 });
 test('a navigation prompt pauses pending autosave until the user resolves the draft',()=>{
   let cancelled=0,prompts=0,actions=0;
-  const context=vm.createContext({detailPendingSave:null,detailsDialog:{open:true,classList:{contains:()=>false}},detailLabelBusy:false,captureDetailDraft:()=>({notes:'Unsaved draft'}),detailAutosave:{cancel(){cancelled++;}},$:id=>id==='#unsaved-dialog'?{showModal(){prompts++;}}:{},pendingDetailsAction:null,pendingDetailsKeepOpen:false});
+  const context=vm.createContext({ownerSessionGeneration:0,detailPendingSave:null,detailsDialog:{open:true,classList:{contains:()=>false}},detailLabelBusy:false,captureDetailDraft:()=>({notes:'Unsaved draft'}),detailAutosave:{cancel(){cancelled++;}},$:id=>id==='#unsaved-dialog'?{showModal(){prompts++;}}:{},pendingDetailsAction:null,pendingDetailsKeepOpen:false});
   vm.runInContext(source.match(/^function requestDetailsClose\(.*$/m)[0],context);
   context.requestDetailsClose(()=>{actions++;});assert.equal(cancelled,1);assert.equal(prompts,1);assert.equal(actions,0);
 });

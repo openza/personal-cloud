@@ -111,8 +111,9 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(browserCode).toContain("navigator.credentials.get");
     expect(browserCode).toContain('parameters.get("setup")');
     expect(browserCode).toContain("history.replaceState");
-    expect(browserCode).toContain('credentials:"same-origin"');
-    expect(browserCode).toContain('headers["x-openza-csrf"]');
+    const transport = await (await exports.default.fetch("https://personal-cloud.local/owner-api.js")).text();
+    expect(transport).toContain('credentials: "same-origin"');
+    expect(transport).toContain('headers["x-openza-csrf"]');
     expect(browserCode).toContain('location.pathname==="/settings"');
     expect(browserCode).toContain("tasksPanel.hidden=false");
     expect(browserCode).toContain("moveTaskTree");

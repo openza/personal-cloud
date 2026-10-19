@@ -57,3 +57,13 @@ test('Manage workspace edits shared references without requesting a provider cat
  assert.equal(nodes.get('#settings-create-space').disabled,false);
  assert.equal(nodes.get('#settings-spaces').children[0].disabled,false);
 }));
+for(const failed of [false,true])test(`old-session workspace ${failed?'failure':'success'} cannot close or repaint the next editor`,()=>setup(async nodes=>{
+ const payload={spaces:[{id:'space_default',name:'Inbox'}],projects:[]};let generation=0,resolve,reject,refreshes=0;
+ const controller=createWorkspaceControls({getState:()=>({payload,selectedSpaceId:'space_default',editable:true,supported:true,generation}),
+  sendMutation:()=>new Promise((yes,no)=>{resolve=yes;reject=no;}),refresh:async()=>refreshes++});
+ controller.render();nodes.get('#create-space').handlers.click();nodes.get('#reference-name').value='Old Space';
+ nodes.get('#reference-form').handlers.submit({preventDefault(){}});controller.stop();generation++;
+ nodes.get('#create-project').handlers.click();nodes.get('#reference-name').value='New draft';nodes.get('#workspace-message').textContent='New session';
+ if(failed)reject(Error('old failure'));else resolve({});await new Promise(setImmediate);
+ assert.equal(refreshes,0);assert.equal(nodes.get('#reference-name').value,'New draft');assert.equal(nodes.get('#reference-form').hidden,false);assert.equal(nodes.get('#workspace-message').textContent,'New session');
+}));

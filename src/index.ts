@@ -1,4 +1,5 @@
 import {workspaceCapability,providerCatalogCapability} from "./workspace-protocol.ts";
+import { schemaReady } from "./schema-readiness.ts";
 import {readCatalog} from "./workspace-records.ts";
 import {
   ContractError,
@@ -52,6 +53,7 @@ const statusByCode: Record<string, number> = {
   delivery_busy: 409,
   stale_snapshot: 409,
   upgrade_required:409,
+  schema_not_ready:503,
   bootstrap_changed:409,
   response_too_large:409,
   unauthorized: 401,
@@ -70,6 +72,7 @@ export default {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/health") {
         if (url.search !== "") throw new ContractError("invalid_request", "Health does not accept query parameters.");
+        if (!await schemaReady(env.DB)) throw new ContractError("schema_not_ready", "Personal Cloud is not ready. Retry after setup or update completes.");
         return noStoreJson({ status: "ok", protocolVersion: 1, product: "tasks", artifactVersion: env.ARTIFACT_VERSION,
           schemaVersion: 25, capabilities: { mutationBatch: mutationBatchCapability, workspace:workspaceCapability,providerCatalog:providerCatalogCapability,workspacePaging:workspacePagingCapability } });
       }

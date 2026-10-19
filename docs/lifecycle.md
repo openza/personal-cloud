@@ -15,7 +15,7 @@ Each pairing code is one-use and belongs to the exact cloud that created it. A c
 
 ## Before an update
 
-1. Identify the exact cloud URL, Worker, D1 database and account. Record `/health` and the current artifact version/schema version; never infer deployment from Git state.
+1. Identify the exact cloud URL, Worker, D1 database and account. Record `/health` and the current artifact version/schema version; never infer deployment from Git state. Successful health now requires the expected schema footprint; incomplete or unavailable D1 returns `schema_not_ready` 503. Health is separate from checksum-history validation and backup recovery proof; see [cloud upgrade compatibility v1](cloud-upgrade-v1.md).
 2. Download a database backup through Desktop's Personal Cloud management flow. Store the SQL export privately, outside Git. Confirm the file exists and is nonempty. A downloaded file is not yet a tested restore.
 3. Record the deployed Git revision or release and Cloudflare deployment version so the previous code can be recovered. Keep an existing build and checksum manifest when available; downloading another code copy is not a prerequisite when the source is already preserved in Git. If deployed code cannot be traced to a saved revision, record that limitation before updating. Build a new version with `npm run build:artifact -- <new-version>` and verify its recorded file sizes and SHA-256 hashes. Package that artifact with Desktop; building alone does not update Desktop's bundle or the live cloud.
 4. Require successful typecheck, Worker tests, browser paging tests, recovery-generator tests and secret scanning. Confirm browser behavior before the approved deployment.
