@@ -6,10 +6,12 @@ import {taskTextError,uniqueLabelNames} from '../public/task-presentation.js';
 
 const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
 class Element {
- value='';disabled=false;hidden=false;open=false;closes=0;attributes=new Set();
+ value='';disabled=false;hidden=false;open=false;closes=0;attributes=new Set();handlers={};
  classList={values:new Set(),contains:name=>this.classList.values.has(name),remove:name=>this.classList.values.delete(name),
   toggle:(name,on)=>on?this.classList.values.add(name):this.classList.values.delete(name)};
  hasAttribute(name){return this.attributes.has(name);}querySelectorAll(){return [];}reset(){}focus(){}after(){}
+ addEventListener(name,handler){this.handlers[name]=handler;}
+ escape(){let prevented=false;this.handlers.cancel?.({preventDefault(){prevented=true;}});if(!prevented)this.close();return prevented;}
  show(){this.open=true;}showModal(){this.open=true;}close(){this.open=false;this.closes++;}
 }
 function setup(){
@@ -33,6 +35,8 @@ function setup(){
  });
  for(const name of ['signOut','openAddTask','createTask','openDetails','updateSelectedLabel','setDialogBusy','lockWorkspaceDetailFields','readDetailFields','captureDetailDraft'])
   vm.runInContext(source.match(new RegExp(`^(?:async )?function ${name}\\(.*$`,'m'))[0],context);
+ // Register the real application's native dialog-cancel listener.
+ vm.runInContext(source.match(/^  taskDialog\.addEventListener\("cancel".*$/m)[0],context);
  const open=action=>{if(action==='create'){context.openAddTask();get('new-title').value='Synthetic create';get('new-space').value='space_a';get('new-priority').value='3';}else context.openDetails(task.id);};
  const save=action=>action==='create'?context.createTask({preventDefault(){}}):context.updateSelectedLabel('task.addLabel',{label:{id:'synthetic_label',name:'Synthetic'}});
  const login=()=>{context.currentEditable=true;context.csrfToken='next';};
@@ -60,4 +64,24 @@ test('accepted create refresh finishing in a retired session cannot close the ne
  await h.context.signOut();h.login();h.open('create');const next=h.save('create'),dialog=h.dialog('create');
  finish(true);await old;assert.equal(dialog.open,true);assert.equal(dialog.classList.contains('busy'),true);assert.equal(h.get('new-title').disabled,true);
  h.writes[1].reject(Error('synthetic cleanup'));await next;
+});
+for(const outcome of ['success','failure'])test(`native Escape cannot dismiss or reopen a busy Create; ${outcome} restores ordinary cancellation`,async()=>{
+ const h=setup();h.open('create');const dialog=h.dialog('create');
+ assert.equal(dialog.escape(),false);assert.equal(dialog.open,false);
+ h.open('create');const pending=h.save('create');
+ assert.equal(dialog.escape(),true);assert.equal(dialog.open,true);assert.equal(h.get('new-title').disabled,true);
+ h.get('new-title').value='Pending create draft';h.context.openAddTask();
+ assert.equal(h.get('new-title').value,'Pending create draft');assert.equal(dialog.classList.contains('busy'),true);assert.equal(h.get('new-title').disabled,true);
+ if(outcome==='success')h.writes[0].resolve({entityVersion:1});else h.writes[0].reject(Error('synthetic failure'));
+ await pending;
+ if(outcome==='success')h.open('create');
+ assert.equal(dialog.open,true);assert.equal(dialog.classList.contains('busy'),false);assert.equal(h.get('new-title').disabled,false);
+ assert.equal(dialog.escape(),false);assert.equal(dialog.open,false);
+});
+test('signout programmatically retires a busy Create even when native Escape is blocked',async()=>{
+ const h=setup();h.open('create');const pending=h.save('create'),dialog=h.dialog('create');
+ assert.equal(dialog.escape(),true);await h.context.signOut();
+ assert.equal(dialog.open,false);assert.equal(dialog.classList.contains('busy'),false);
+ h.writes[0].reject(Object.assign(Error('retired request'),{code:'session_changed'}));await pending;
+ h.login();h.open('create');assert.equal(h.get('new-title').disabled,false);assert.equal(dialog.escape(),false);
 });

@@ -57,6 +57,7 @@ function bindEvents(){
   $("#more-deliveries").addEventListener("click",()=>loadDeliveries(false));$("#retry-deliveries").addEventListener("click",()=>loadDeliveries());
   $("#create-pairing").addEventListener("click",createPairingGrant);$("#signout").addEventListener("click",signOut);setupForm.addEventListener("submit",setupOwner);recoveryForm.addEventListener("submit",recoverOwner);
   $("#add-task").addEventListener("click",()=>openAddTask());$("#header-add-task").addEventListener("click",()=>openAddTask());$("#task-form").addEventListener("submit",createTask);$("#details-form").addEventListener("submit",event=>saveTask(event,{keepOpen:true}));
+  taskDialog.addEventListener("cancel",event=>{if(taskDialog.classList.contains("busy"))event.preventDefault();});
   $("#details-form").addEventListener("focusout",event=>{if(event.target.matches("#details-title,#details-notes,#details-space,#details-project,#details-status,#details-priority,#details-planned,#details-deadline"))detailAutosave.schedule();});
   $("#details-title").addEventListener("keydown",event=>{if(event.key==="Enter"){event.preventDefault();$("#details-notes").focus();}});
   $("#details-form").addEventListener("input",()=>{$("#details-save-status").textContent="Unsaved changes";});
