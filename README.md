@@ -46,6 +46,8 @@ To exercise the browser flow manually, place a strong one-time `OWNER_BOOTSTRAP_
 
 The local checks above do not create or modify Cloudflare account resources. Desktop guided OAuth setup, provisioning, backup, update, disconnect and removal are implemented in the companion Tasks repository. Any live rehearsal or deployment requires separate authorization; source tests are not proof that a deployed cloud runs this version. Check `/health` for artifact/schema versions.
 
+See the [architecture and extension rules](docs/architecture.md) for module/state ownership and the [compatibility matrix](docs/compatibility-matrix.md) for exact source support, artifact pins and tested local pairs.
+
 The permanent Desktop provisioning flow consumes a versioned, checksum-manifested artifact. Build one locally without contacting a Cloudflare account:
 
 ```sh

@@ -2,9 +2,19 @@
 
 Personal Cloud ships with Openza Tasks. Openza does not operate a shared task-hosting service: each owner provisions a Worker and D1 database in their own Cloudflare account. The project website and OAuth publisher domain identify Openza; they do not replace the owner's cloud address.
 
-## Current preparation snapshot
+## Current source and packaging evidence
 
-Checked on 11 October 2026 against cloud source `23f15e9`:
+The [compatibility matrix](compatibility-matrix.md) records the source/pin evidence
+checked on 19 October 2026. The inspected Desktop candidate pins schema 20
+`0.1.0-preview.9`; the reviewed schema 25 source and local validation artifact
+remain separate. No installed/deployed version, new release pin or fresh live
+OAuth acceptance is inferred from that source inspection.
+
+## Historical preparation snapshot — 11 October 2026
+
+The following statements record checks on 11 October 2026 against cloud source
+`23f15e9`. They describe that snapshot, including its then-current branch,
+packaging and reported external state; they are not current-state verification:
 
 - Type checking passed; 85 Worker tests, four Web paging tests and three emergency recovery-generator tests passed.
 - The existing `0.1.0-preview.7` bundle has 24 checksum-verified files: Worker code, six asset entries (including security-header metadata), and 17 migrations. Its assets and migrations match source.
@@ -18,13 +28,13 @@ Checked on 11 October 2026 against cloud source `23f15e9`:
 - Source access is now public with the owner's explicit approval. Anonymous Git access and the pinned source revision both return HTTP 200. A fresh credential-free staging build passed, with the expected manifest and all 24 entries verified. This removes the previously confirmed private-repository blocker; hosted CI acceptance remains a distinct unperformed check.
 - The existing OAuth client has the Openza logo and `https://openza.org/privacy/` policy URL, retaining its original callback, PKCE flow and three required scopes. Public promotion is complete; authorization outside the publisher account still requires acceptance testing. Corrected Website visibility wording is now deployed and verified separately; no task cloud was changed by the Website deployment.
 
-### Full integration review candidate
+### Historical full integration review candidate
 
 The initial recovered implementation needs additional hardening before production release. The `0.1.0-preview.8` candidate adds authenticated replica identity checks, durable serialized browser mutation retries, recovery continuity, deleted-task protection and atomic full-chain parent-cycle validation. Migration 0018 adds the parent invariant; schema health is now 18. Existing preview.7 remains deployed until an approved backed-up update.
 
 Candidate deterministic checks passed: typecheck, 88 Worker tests, eight Web paging/retry tests and four emergency-rebootstrap tests, including execution of the real generated administrative SQL followed by replacement passkey bootstrap in isolated memory. Fresh full-integration review identified six defects; the correction review confirmed all six closed with no actionable P1/P2 regression. Final artifact/companion packaging acceptance remains required. Local tests do not establish live D1 recovery or public cross-account OAuth acceptance. Snap and Windows remain excluded.
 
-## Reproducible Desktop handoff
+## Historical Desktop handoff — 11 October 2026
 
 From the companion Tasks checkout:
 
@@ -33,7 +43,7 @@ node scripts/personal-cloud/stage-artifact.mjs
 node scripts/personal-cloud/publish-desktop.mjs 1.1.0
 ```
 
-The checked-in lock selects source `23f15e915bcd69d6901d4c4be58cc26c476427da`, artifact `0.1.0-preview.7`, and expected manifest SHA-256 `d3df7cca1d6f747334eca0fb17a557251be1d6a2988c876958ac3296165c70b9`. Staging fetches that exact public revision into ignored operational storage, installs locked dependencies, builds locally and verifies the manifest and all entries. It does not require GitHub or Cloudflare credentials and does not deploy.
+The lock inspected for that handoff selected source `23f15e915bcd69d6901d4c4be58cc26c476427da`, artifact `0.1.0-preview.7`, and expected manifest SHA-256 `d3df7cca1d6f747334eca0fb17a557251be1d6a2988c876958ac3296165c70b9`. The current inspected pin is recorded separately in the [compatibility matrix](compatibility-matrix.md). The staging workflow fetches its exact locked public revision into ignored operational storage, installs locked dependencies, builds locally and verifies the manifest and all entries. It does not require GitHub or Cloudflare credentials and does not deploy.
 
 The local fresh-source staging and Production-profile publish validation passed on 11 October 2026. The existing `1.1.0` version above is a validation example, not a newly approved release version. The output was not launched or installed. See Tasks' `docs/personal-cloud-desktop-publish.md` for exact prerequisites, output paths and maintainer-only boundaries. Hosted CI execution and final public distribution acceptance remain separate checks.
 
@@ -45,7 +55,7 @@ The local fresh-source staging and Production-profile publish validation passed 
 4. Select matching Desktop and cloud release versions. Establish a reproducible handoff from an exact cloud source revision to the Desktop release job; do not silently download an unpinned branch or rely on ignored local files. Build the cloud artifact and package it as `PersonalCloudArtifact` beside Desktop using the supported packaging project/profile. Verify every manifest entry in the final distributable, not just the source tree or local build output. Include the public client ID, exact scopes and registered callback; never embed a client secret, bootstrap grant, database or personal task data.
 5. Test the final distributable on the isolated Dev channel: setup is enabled, browser authorization opens, owner security setup completes, Desktop pairs, and Web/Desktop changes round-trip. A public client must also be validated for authorization outside the publisher account; a private-client test cannot establish this.
 6. Close remaining lifecycle acceptance gaps with an approved disposable cloud. A successful local SQL restore is not live D1 recovery. Destructive removal requires fresh confirmation and verification of both Worker and database absence; preserve local tasks and a private backup. Do not use an active personal cloud as an assumed disposable target.
-7. Publish only through the explicitly approved release channel after acceptance. Snap and Windows remain deferred for this preparation; their exclusion does not certify those packages.
+7. Publish only through the explicitly approved release channel after acceptance. Snap review and Windows native build, packaging and distribution acceptance are outside this preparation; those exclusions do not certify the packages. Windows continuity work remains active.
 
 ## Honest user-facing promises
 
