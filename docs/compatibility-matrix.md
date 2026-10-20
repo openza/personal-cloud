@@ -12,7 +12,7 @@ commit does not change the runtime revision or rebuild the recorded artifact.
 | First Personal Cloud integration, `3e2a3f923452d461f4228bb3ee65fc8ae1f79796` | Explicit schemas 17–20; health response model has no capabilities field | No per-pass capability negotiation. This source is not proof of forward compatibility with workspace clouds. |
 | Main snapshot `5637e3adc7ea6a57b2a7fdfa44bf2b9de93c5201` | Explicit schemas 17–25, with capability validation | Predates the `e7378d7` health/preflight corrections; source support is not upgrade-safety acceptance. |
 | Integration snapshot `83d60890dd24ead67d08d8d45cd246bc3d3e3610` | Explicit schemas 17–25, with capability validation | Same safety limitation as the earlier main snapshot; the allowlist alone does not establish every mixed-version workflow. |
-| `e7378d7060ed8812eb3608890e25d53633a94f1e` | Explicit schemas 17–25; fail-closed health and migration preflight | Reviewed upgrade candidate. Its checked-in lock selects preview.9/schema 20 below; it does not automatically package the local schema 25 candidate. |
+| `e7378d7060ed8812eb3608890e25d53633a94f1e` | Explicit schemas 17–25; fail-closed health and migration preflight | Upgrade candidate. Its checked-in lock selects preview.9/schema 20 below; it does not automatically package the local schema 25 candidate. |
 
 At the inspected Desktop candidate, `scripts/personal-cloud/artifact-lock.json`
 pins cloud source `be1691402129d7a571f9bd881a91d93bafe28ef1`, artifact
@@ -21,7 +21,7 @@ pins cloud source `be1691402129d7a571f9bd881a91d93bafe28ef1`, artifact
 That source advertises schema 20. A pin is a packaging input, not proof of an
 installed package or deployed cloud's current state.
 
-The historical 11 October handoff selected schema 17 source
+The historical 11 October release snapshot selected schema 17 source
 `23f15e915bcd69d6901d4c4be58cc26c476427da`, artifact `0.1.0-preview.7`, digest
 `d3df7cca1d6f747334eca0fb17a557251be1d6a2988c876958ac3296165c70b9`.
 Its [release-preparation evidence](public-release.md) is retained as historical.
@@ -43,7 +43,7 @@ and validate its fields before using the associated operation.
 | 22 | `0022_source_history_indexes.sql`, [batch contract](mutation-batches.md) | History indexes and optional ordered bounded mutation batches. |
 | 23 | `0023_workspace_parity.sql`, [workspace contract](workspace-contract-v1.md) | Workspace metadata and provider catalog/intents/routes. Readers without workspace support stop at `workspace.changed` before advancing/acknowledging it. |
 | 24 | `0024_source_identity_lookup.sql`, [paging contract](workspace-paging-v1.md) | Source identity index, signed bounded bootstrap paging and compound payload bound. Negotiate paging explicitly. |
-| 25 | Main source `c77e2d966cd25077c1bb8bb6ab1995b6def7a07c`; reviewed runtime `853551f8d31f30535ba40fbc490240e8243b6620` | Authoritative task modification time. Reviewed runtime also adds fail-closed schema readiness and session/dialog guards without a schema bump. |
+| 25 | Main source `c77e2d966cd25077c1bb8bb6ab1995b6def7a07c`; runtime `853551f8d31f30535ba40fbc490240e8243b6620` | Authoritative task modification time. That runtime also adds fail-closed schema readiness and session/dialog guards without a schema bump. |
 
 No independently pinned release for each intermediate schema 21–24 is asserted
 here. Those rows identify ordered migration/contract evidence. Capability version
@@ -59,13 +59,13 @@ negotiated; a schema number does not authorize lossy fallback or a guessed API.
 | Desktop `e7378d7`, schemas 17–23 | Fake-HTTP lifecycle cases | Mocked cloud responses; not historical Worker/database deployment tests. |
 | Desktop `e7378d7`, schema 24 | Mocked bounded paging cases | Paging contract coverage, not a real schema 24 cloud pairing rehearsal. |
 | Desktop `e7378d7`, schema 25 | Parser/store cases and the current schema 25 artifact-loader check | Record decoding, persistence and artifact validation; not installed-app or live-provider acceptance. |
-| Cloud runtime `853551f` browser behavior | 170 Web tests; synthetic Chrome task creation/editing, labels, Settings, readiness loss/recovery and idle Escape | Busy/session races use deterministic actual-function tests; synthetic authentication is not real passkey acceptance. |
-| Cloud readiness and domain runtime | 179 Worker tests; fixed readiness cost with empty and populated task/history data | Local D1 implementation, not a live account quota measurement. |
+| Cloud runtime `853551f` browser behavior | Synthetic Chrome task creation/editing, labels, Settings, readiness loss/recovery and idle Escape | Busy/session races use deterministic actual-function tests; synthetic authentication is not real passkey acceptance. |
+| Cloud readiness and domain runtime | Bounded readiness cost with empty and populated task/history data | Local D1 implementation, not a live account quota measurement. |
 | Built schema 25 Worker over incomplete D1 | Actual artifact rejects empty and schema 17/20/22/24 fixtures with 503; populated schema 22 upgrades to 25 preserving receipts, version claims, timestamps and foreign keys | Negative upgrade-readiness cases, not successful Desktop compatibility tests against historical Workers. |
 | Historical schemas 17–24 with each Desktop snapshot | Source allowlists, versioned contracts and specific regression evidence | No complete nine-schema, end-to-end mixed-version rehearsal is claimed. |
 
 The local artifact is `0.0.0-local-upgrade-v1`, format 1/schema 25, built from the
-reviewed runtime. Its verified manifest SHA-256 is
+recorded runtime. Its manifest SHA-256 is
 `c97990d0e5a1ac224e5748ca214f6be341905356db761ce72f4857a6d7cf3eb3`.
 It is separate from the preview.9 pin. Do not reuse this digest for a rebuilt
 artifact; verify the actual output, even when source changes are documentation

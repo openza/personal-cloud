@@ -56,4 +56,4 @@ The emergency owner-rebootstrap generator is review-only: it reads a new bootstr
 
 ## Release boundaries
 
-Linux is the current scope; Snap validation is deferred by user direction and Windows is not an acceptance requirement for this batch. Live lifecycle rehearsals and public OAuth-client availability are separate from fake-backed/local tests. No production database writes should be executed by the development agent. Source completion, commit/push, approved deployment and live acceptance must be reported separately.
+Local and fake-backed checks cover runtime behavior, not final package, public OAuth or deployed lifecycle acceptance. Package channels and live rehearsals belong to the companion Desktop release plan. Building or publishing source does not deploy an owner's cloud.

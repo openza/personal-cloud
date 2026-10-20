@@ -3,24 +3,27 @@
 The [quota contract](quota-pause-v1.md) uses separate Desktop and Web safeguards:
 45,000 workload credits, 3,000 envelopes and 10,000 API dispatch attempts per
 client/day. These are conservative local reservations, not billed D1 rows or an
-account-wide cap. All results below use anonymous synthetic data and actual local
+account-wide cap. All results below use synthetic data and actual local
 D1 result metadata. Static asset loads and other traffic are excluded from API
 counts; these are not exact live billed Worker invocations.
 
-The principal population contains 877 tasks, 5 Spaces, 98 projects, 28 labels,
-366 label links, 553 source-linked tasks and 569 catalog items. The initial seed
-includes 18 parent links. No provider account was contacted or live quota induced.
+The representative synthetic profile has roughly 900 tasks, 100 projects, 30 labels,
+a few hundred label links, 550 source-linked tasks and 600 catalog items across
+several Spaces. Its initial seed includes parent relationships. These rounded
+workload and scenario labels approximate the original measurement buckets; the
+measured costs and projection results below are unchanged. This is not a rerun
+with a new population. No provider account was contacted or live quota induced.
 The runtime was Node 22.23.2, Miniflare 5.20261006.1-alpha and Wrangler 4.149.0.
 
 ## Measured route costs
 
 | Synthetic scenario | API dispatches | Reads | Writes |
 | --- | ---: | ---: | ---: |
-| Initial seed, 1,832 envelopes including parent links | 1,987 | 77,678 | 45,976 |
-| One 553-source heartbeat cycle | 590 | 22,096 | 7,777 |
-| 8,823 note-patch stress envelopes | 9,365 | 336,728 | 191,356 |
+| Representative initial seed, including parent relationships | 1,987 | 77,678 | 45,976 |
+| One representative-profile source heartbeat cycle | 590 | 22,096 | 7,777 |
+| Large note-patch stress backlog (about 9,000 envelopes) | 9,365 | 336,728 | 191,356 |
 | Empty completed-profile Desktop cycle, warm token | 13 | 738 | 7 |
-| 569 timestamp-only catalog publications, before pull/ACK | 569 | 18,613 | 14,194 |
+| Representative-profile timestamp-only catalog publications, before pull/ACK | 569 | 18,613 | 14,194 |
 | One owner-session source-linked/two-label note patch | 1 | 28 | 23 |
 | One owner-session native note patch | 1 | 23 | 21 |
 
@@ -51,9 +54,8 @@ minutes. Changed catalog snapshots use the already-counted source cycles.
 
 ## Queue projections and limitations
 
-A count-only existing queue has 8,760 source refreshes and 63 confirmations.
-Payloads, identifiers and its actual order were not inspected. Two synthetic
-orders are modeled; neither authorizes reordering actual work. Confirmation cost
+A large synthetic legacy backlog (about 9,000 envelopes) models a mix of source
+refreshes and provider confirmations in two FIFO orderings. Confirmation cost
 uses the entire measured delivery workflow as a conservative bound. The original
 mix clears by model day 4; the continuing queue takes longer to catch up:
 
@@ -64,7 +66,7 @@ mix clears by model day 4; the continuing queue takes longer to catch up:
 | 100 Web notes | 0 | 15 |
 | 100 Web notes | 100 | 32 |
 
-Fresh-seed projections also append 262 conservative provider confirmations after
+Fresh-seed projections also include conservative provider-confirmation work after
 the measured source completion commands. Fresh seed, mixed seed/backlog, both
 count-mix orders and note-only stress produce 28 combined cases. Every model day
 stays below half the documented Free daily allowances: the maxima are 11,595 API
@@ -80,16 +82,9 @@ envelopes and IDs must remain untouched until valid receipts acknowledge them.
 Other devices/apps, static loads and deliberate extra reloads are outside this
 representative workload; local metadata is not a live billing guarantee.
 
-The versioned measurement/report scripts and focused deterministic tests reproduce
-the method; count inputs, raw metadata, screenshots and exact validation ledgers
-stay in ignored operational artifacts. Browser checks verified pause feedback,
-cached read-only data, pending-write retention and no further API dispatch after
-reload. Next-reset recovery is deterministic clock coverage, not a live midnight
-observation. No production deployment or data write occurred.
-
-The local validation snapshot passed 191 Worker tests, 172 Web tests and 61
-quota/accounting/polling/model/startup tests, plus typecheck, populated migration
-and D1 limit checks. The D1 check used a writable temporary uv cache after its
-first attempt hit a read-only default cache. A stale source assertion for the former polling interval was
-corrected before the complete Worker rerun. The compatible artifact's exact
-source snapshot and digest remain in the operational validation ledger.
+The versioned [measurement](../scripts/measure-budget.mjs) and
+[projection](../scripts/report-budget.mjs) scripts describe the method. Local
+browser checks cover pause feedback, cached read-only data, pending-write retention
+and no further API dispatch after reload. Next-reset recovery has deterministic
+clock coverage, not a live midnight observation. These results do not establish
+production deployment or provider acceptance.

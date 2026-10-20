@@ -58,8 +58,8 @@ Read-only cached data and accepted-save/read-failure recovery remain unchanged.
 
 Use synthetic local data to check current health, incomplete schemas, missing
 invariant objects, unavailable D1, exact artifact hashes, populated upgrades and
-session races. Browser acceptance, independent review, Desktop consumer checks,
-approved deployment and real-cloud acceptance are separate evidence.
+session races. Local browser behavior, Desktop artifact loading and deployed-cloud
+validation cover different integration boundaries.
 
 For a local artifact rehearsal, build a synthetic version and run:
 

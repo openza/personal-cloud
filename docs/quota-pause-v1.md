@@ -1,6 +1,6 @@
 # Quota pause v1
 
-See [anonymous budget validation](quota-budget-validation-v1.md) for measured route
+See [budget validation](quota-budget-validation-v1.md) for measured route
 costs and the derived workload assumptions.
 
 This additive error/client-state contract preserves protocol 1, schema 25,
