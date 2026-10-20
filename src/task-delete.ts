@@ -1,3 +1,4 @@
+import {throwDailyQuota} from "./daily-quota.ts";
 import { ContractError, canonicalize, computeCanonicalHash, type TaskDeleteMutation } from "./protocol.ts";
 import { duplicateOrReuse, findReceipt, toReceipt, type Receipt } from "./mutation-receipt.ts";
 
@@ -49,7 +50,7 @@ export async function applyTaskDelete(
       WHERE device_sequences.last_sequence+1=excluded.last_sequence`).bind(mutation.deviceId, mutation.deviceSequence),
   );
   try { await db.batch(statements); }
-  catch (error) {
+  catch (error) {throwDailyQuota(error);
     const raced = await findReceipt(db, mutation.mutationId);
     if (raced) return duplicateOrReuse(raced, canonicalHash);
     const current = await findTask(db, mutation.entityId);

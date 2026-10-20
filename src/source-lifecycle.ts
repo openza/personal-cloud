@@ -1,3 +1,4 @@
+import {throwDailyQuota} from "./daily-quota.ts";
 import {
   ContractError,
   canonicalize,
@@ -68,7 +69,7 @@ export async function applySourceRefresh(
     advanceCloudState(db, mutation.mutationId),
       advanceDevice(db, mutation.deviceId, mutation.deviceSequence),
     ]);
-  } catch (error) {
+  } catch (error) {throwDailyQuota(error);
     const raced = await findReceipt(db, mutation.mutationId);
     if (raced) return duplicateOrReuse(raced, canonicalHash);
     const latestTask=await db.prepare("SELECT entity_version FROM tasks WHERE id=?1 AND deleted_at IS NULL").bind(mutation.entityId).first<TaskRow>();
@@ -128,7 +129,7 @@ export async function applyExternalCommandResult(
     advanceCloudState(db, mutation.mutationId),
       advanceDevice(db, mutation.deviceId, mutation.deviceSequence),
     ]);
-  } catch (error) {
+  } catch (error) {throwDailyQuota(error);
     const raced = await findReceipt(db, mutation.mutationId);
     if (raced) return duplicateOrReuse(raced, canonicalHash);
     if(String(error).includes("provider delivery not owned"))throw new ContractError("invalid_transition","The delivery was already reconciled.");

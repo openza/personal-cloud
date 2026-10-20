@@ -1,4 +1,9 @@
+import {dailyQuotaError,DailyQuotaError} from "./daily-quota.ts";
 import {workspaceCapability,providerCatalogCapability} from "./workspace-protocol.ts";
+import {fanoutBudgetCapability,parseFanoutBound} from './fanout-budget.ts';
+import {catchupStatusCapability,reportCatchupStatus,readCatchupStatus} from './sync-catchup-status.ts';
+import {webPendingRecoveryCapability,recoverWebPending} from './web-pending-recovery.ts';
+import { schemaReady } from "./schema-readiness.ts";
 import {readCatalog} from "./workspace-records.ts";
 import {
   ContractError,
@@ -31,7 +36,7 @@ export interface Env {
   ASSETS: Fetcher;
 }
 
-const retryableCodes = new Set(["sequence_gap", "parent_not_found", "internal_error"]);
+const retryableCodes = new Set(["sequence_gap", "parent_not_found", "internal_error", "daily_quota_exceeded", "fanout_bound_exceeded", "web_fanout_deferred"]);
 const statusByCode: Record<string, number> = {
   invalid_request: 400,
   unsupported_protocol: 400,
@@ -52,6 +57,12 @@ const statusByCode: Record<string, number> = {
   delivery_busy: 409,
   stale_snapshot: 409,
   upgrade_required:409,
+  schema_not_ready:503,
+  daily_quota_exceeded:503,
+  fanout_bound_exceeded:409,
+  web_fanout_deferred:409,
+  web_fanout_too_large:409,
+  web_pending_cancelled:409,
   bootstrap_changed:409,
   response_too_large:409,
   unauthorized: 401,
@@ -68,10 +79,25 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
       const url = new URL(request.url);
+      if(url.pathname===webPendingRecoveryCapability.path){
+        if(request.method!=='POST'||url.search)throw new ContractError('invalid_request','Use POST for an unfinished Web change.');
+        await requireOwnerSession(request,env.DB,true);
+        return noStoreJson(await recoverWebPending(env.DB,env.INSTANCE_ID,await readBoundedBody(request)));
+      }
+      if(url.pathname===catchupStatusCapability.path){
+        if(url.search)throw new ContractError('invalid_request','Catch-up status does not accept query parameters.');
+        if(request.method==='POST'){
+          const device=await requireDeviceAccess(request,env.DB,'desktop_sync');
+          return noStoreJson(await reportCatchupStatus(env.DB,device,await readBoundedBody(request)));
+        }
+        if(request.method==='GET'){await requireOwnerSession(request,env.DB);return noStoreJson(await readCatchupStatus(env.DB));}
+        throw new ContractError('invalid_request','Use GET or POST for catch-up status.');
+      }
       if (request.method === "GET" && url.pathname === "/health") {
         if (url.search !== "") throw new ContractError("invalid_request", "Health does not accept query parameters.");
+        if (!await schemaReady(env.DB)) throw new ContractError("schema_not_ready", "Personal Cloud is not ready. Retry after setup or update completes.");
         return noStoreJson({ status: "ok", protocolVersion: 1, product: "tasks", artifactVersion: env.ARTIFACT_VERSION,
-          schemaVersion: 25, capabilities: { mutationBatch: mutationBatchCapability, workspace:workspaceCapability,providerCatalog:providerCatalogCapability,workspacePaging:workspacePagingCapability } });
+          schemaVersion: 26, capabilities: { mutationBatch: mutationBatchCapability, workspace:workspaceCapability,providerCatalog:providerCatalogCapability,workspacePaging:workspacePagingCapability,fanoutBudget:fanoutBudgetCapability,catchupStatus:catchupStatusCapability,webPendingRecovery:webPendingRecoveryCapability } });
       }
       if (request.method === "GET" && url.pathname === "/auth/status") {
         return noStoreJson(await authStatus(env.DB));
@@ -204,7 +230,7 @@ export default {
         const actor = await requireDeviceCapabilities(request, env.DB,
           [...new Set(items.map(item => mutationCapability(item.mutation)))]);
         requireActorDevice(actor, items[0].mutation.deviceId);
-        return noStoreJson(await applyMutationBatch(env.DB, env.INSTANCE_ID, items, publicMutationError));
+        return noStoreJson(await applyMutationBatch(env.DB, env.INSTANCE_ID, items, publicMutationError,{fanoutBound:parseFanoutBound(request.headers.get(fanoutBudgetCapability.requestHeader))}));
       }
       if (request.method !== "POST" || url.pathname !== "/v1/tasks/mutations") {
         if (request.method === "GET" && !url.pathname.startsWith("/v1/") && !url.pathname.startsWith("/sync/")) {
@@ -220,9 +246,10 @@ export default {
       const mutation = parseTaskMutation(rawRequest, env.INSTANCE_ID);
       const actor = await authorizeSync(request, env, true, mutationCapability(mutation));
       requireActorDevice(actor, mutation.deviceId);
-      const receipt = await applyMutation(env.DB, mutation, rawRequest);
+      const receipt = await applyMutation(env.DB, mutation, rawRequest,{fanoutBound:parseFanoutBound(request.headers.get(fanoutBudgetCapability.requestHeader)),ownerSession:(request.headers.get('cookie')??'').includes('__Host-openza_session=')});
       return Response.json(receipt, { status: receipt.outcome === "accepted" ? 201 : 200 });
     } catch (error) {
+      const quota=dailyQuotaError(error);if(quota)return errorResponse(quota);
       if (error instanceof ContractError) return errorResponse(error);
       return errorResponse(new ContractError("internal_error", "The mutation could not be applied."));
     }
@@ -283,10 +310,11 @@ function parseBoundedLimit(value: string | null): number {
 
 function errorResponse(error: ContractError): Response {
   const detail = publicMutationError(error);
-  return noStoreJson({ protocolVersion: 1, product: "tasks", error: detail }, { status: statusByCode[detail.code] ?? 500 });
+  return noStoreJson({ protocolVersion: 1, product: "tasks", error: detail }, { status: statusByCode[detail.code] ?? 500, ...(error instanceof DailyQuotaError?{headers:{"retry-after":String(Math.max(1,Math.ceil((Date.parse(error.quota.resetAt)-Date.now())/1000)))}}:{}) });
 }
 
 function publicMutationError(error: unknown) {
+  error=dailyQuotaError(error)??error;
   if (!(error instanceof ContractError)) error = new ContractError("internal_error", "The mutation could not be applied.");
   const contract = error as ContractError;
   const code = contract.code in statusByCode ? contract.code : "internal_error";
@@ -295,6 +323,7 @@ function publicMutationError(error: unknown) {
       message: code === "internal_error" ? "The mutation could not be applied." : contract.message,
       retryable: retryableCodes.has(code),
       requestId: `request_${crypto.randomUUID()}`,
+      ...(contract instanceof DailyQuotaError?{quota:contract.quota}:{}),
   };
 }
 

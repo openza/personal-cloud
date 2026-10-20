@@ -1,3 +1,4 @@
+import {throwDailyQuota} from "./daily-quota.ts";
 import {
   ContractError,
   canonicalize,
@@ -119,7 +120,7 @@ export async function applyTaskReopen(
 
   try {
     await db.batch(statements);
-  } catch (error) {
+  } catch (error) {throwDailyQuota(error);
     const racedReceipt = await findReceipt(db, mutation.mutationId);
     if (racedReceipt) return duplicateOrReuse(racedReceipt, canonicalHash);
     const currentTask = await findTask(db, mutation.entityId);

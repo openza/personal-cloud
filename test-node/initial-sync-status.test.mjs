@@ -80,9 +80,15 @@ test("resume replaces a suspended in-flight read and discards its completion in 
     if(!staleFirst)await finishStale();
     assert.deepEqual(f.renders.map(copy=>copy.state),["checking","complete"]);
     assert.deepEqual([...f.timers.keys()],timers);
-    assert.deepEqual([...f.timers.values()].map(t=>t.ms),[30_000]);
+    assert.deepEqual([...f.timers.values()].map(t=>t.ms),[300_000]);
     f.monitor.stop();assert.equal(f.timers.size,0);
   }
+});
+test("completed status backs off, but resume/manual check immediately discovers an active upload",async()=>{
+ let state='complete',reads=0;const f=fixture(async()=>{reads++;return{protocolVersion:1,state,devices:[]};});
+ f.monitor.start();await f.monitor.refresh();assert.deepEqual([...f.timers.values()].map(t=>t.ms),[300_000]);
+ state='uploading';await f.monitor.refresh({resuming:true});assert.equal(reads,2);assert.equal(f.renders.at(-1).state,'uploading');
+ assert.deepEqual([...f.timers.values()].map(t=>t.ms),[30_000]);f.monitor.stop();
 });
 test("signout discards an in-flight response and allows new session monitor", async () => {
   let finish;const f=fixture(()=>new Promise(resolve=>{finish=resolve;}));f.monitor.start();

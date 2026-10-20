@@ -11,7 +11,7 @@ class Element {
   classList={values:new Set(),toggle:(key,on)=>on?this.classList.values.add(key):this.classList.values.delete(key),contains:key=>this.classList.values.has(key),remove(){}};
   append(...items){this.children.push(...items);}replaceChildren(...items){this.children=items;this.textContent='';}
   addEventListener(name,action){this.handlers[name]=action;}hasAttribute(key){return this.attributes.has(key);}setAttribute(key){this.attributes.add(key);}
-  after(){}focus(){}checkValidity(){return true;}show(){this.open=true;}showModal(){this.open=true;}close(){this.open=false;}
+  querySelectorAll(){return [];}after(){}focus(){}checkValidity(){return true;}show(){this.open=true;}showModal(){this.open=true;}close(){this.open=false;}
 }
 function setup(){
   const nodes=new Map(),get=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);},dialog=get('details-dialog');
@@ -20,13 +20,14 @@ function setup(){
   const task={id:'task_a',title:'Original title',notes:'Original notes',spaceId:'space_a',projectId:null,workflowStatus:'inbox',priority:3,entityVersion:1,labels:[],plannedOn:null,plannedAt:null,deadlineOn:null,deadlineAt:null,createdAt:'2026-10-01T00:00:00.000Z'};
   let server={...task},mode='online',writes=0,signouts=0,opens=0,error='',deferred;
   const payload=()=>({tasks:[{...server}],spaces:[{id:'space_a'}],projects:[],labels:[],instanceId:'local'}),cached=payload();
-  const context=vm.createContext({ownerSessionGeneration:0,detailEditorGeneration:0,detailPendingSave:null,detailTaskUnavailable:false,detailTaskBaseline:null,detailBaseline:{},selectedTaskId:null,detailLabelBusy:false,currentEditable:true,csrfToken:'synthetic',currentPayload:cached,taskLoadInFlight:null,lastConfirmed:{payload:cached,savedAt:'before'},workspaceSupported:()=>true,taskTextError,taskSaveError,
-    $:selector=>get(selector.slice(1)),detailsDialog:dialog,document:{getElementById:get,activeElement:get('details-notes'),body:{classList:{remove(){}}}},localStorage:{setItem(){}},cacheKey:'cache',formatTime:v=>v,localDate:d=>d.toISOString().slice(0,10),fillSpaceSelect(){},fillProjectSelect(){},renderDetailLabels(){},renderSource(){},renderSubtasks(){},updateWorkbenchLayout(){},plannedEdit:()=>null,
+  const context=vm.createContext({cloudBrake:{status:()=>null},networkFailures:0,rotationFailures:0,ownerSessionGeneration:0,detailEditorGeneration:0,detailPendingSave:null,detailTaskUnavailable:false,detailTaskBaseline:null,detailBaseline:{},selectedTaskId:null,detailLabelBusy:false,currentEditable:true,csrfToken:'synthetic',currentPayload:cached,taskLoadInFlight:null,lastConfirmed:{payload:cached,savedAt:'before'},workspaceSupported:()=>true,taskTextError,taskSaveError,
+    $:selector=>get(selector.slice(1)),detailsDialog:dialog,taskDialog:get('task-dialog'),document:{getElementById:get,activeElement:get('details-notes'),body:{classList:{remove(){}}}},localStorage:{setItem(){}},cacheKey:'cache',formatTime:v=>v,localDate:d=>d.toISOString().slice(0,10),fillSpaceSelect(){},fillProjectSelect(){},renderDetailLabels(){},renderSource(){},renderSubtasks(){},updateWorkbenchLayout(){},plannedEdit:()=>null,
     clearDialogError(){error='';},showDialogError(_dialog,message){error=message;},setNotice(){},setStatus(){},clearTaskTimers(){},scheduleTaskTimers(){},taskList:{setAttribute(){}},setTimeout:()=>0,clearTimeout(){},retryRefreshMs:1,sessionTimer:null,readCache:()=>cached,
     workspaceControls:{stop(){}},initialStatusMonitor:{stop(){}},pendingCreatedTaskId:null,deliveryCursor:null,featureHealth:null,tasksPanel:get('tasks-panel'),devicesPanel:get('devices-panel'),authPanel:get('auth-panel'),setupForm:get('setup-form'),recoveryForm:get('recovery-form'),signinActions:get('signin-actions'),authCopy:get('auth-copy'),
     api:async path=>{if(path==='/auth/signout')signouts++;return{};},rotateSession:async()=>{},readAllTasks:async()=>{if(mode==='lagging')return cached;if(mode==='offline')throw new Error('Read unavailable');if(mode==='unauthorized')throw Object.assign(new Error('Signed out'),{status:401});if(mode==='deferred')return await new Promise(resolve=>deferred=resolve);return payload();},
     sendMutation:async(id,version,operation,p)=>{writes++;assert.equal(id,task.id);assert.equal(operation,'task.patch');if(version!==server.entityVersion)throw Object.assign(new Error('Task changed'),{code:'version_conflict',status:409});server={...server,...p.fields,entityVersion:version+1};return{entityId:id,entityVersion:server.entityVersion,outcome:'accepted'};},
   });
+  context.renderFanoutDraft=()=>{};context.renderPendingWebChange=()=>{};
   for(const name of ['loadTasks','loadTaskSnapshot'])vm.runInContext(source.match(new RegExp(`^async function ${name}\\([^]*?^}`,'m'))[0],context);
   for(const name of ['saveTask','finishMutations','signOut','openDetails','readDetailFields','captureDetailDraft','refreshOpenDetailsStatus','isCurrentDetail','showAcceptedDetailSave','confirmPendingDetailSave','lockWorkspaceDetailFields','setDialogBusy'])extract(context,name);
   context.renderWorkspace=(p,state)=>{context.currentPayload=p;context.currentEditable=state==='current';context.refreshOpenDetailsStatus();};
@@ -62,6 +63,11 @@ test('accepted draft navigation describes a saved change, Cancel preserves it an
 });
 test('an old accepted-save read cannot repaint the workspace after signout and a new owner session',async()=>{
  const h=setup();h.mode('deferred');const oldPayload=h.context.currentPayload,pending=h.autosave.flush();await new Promise(resolve=>setImmediate(resolve));await h.context.signOut();h.context.csrfToken='new-synthetic-session';h.resolveRead();await pending;assert.equal(h.context.currentPayload,oldPayload);assert.equal(h.dialog.open,false);assert.equal(h.context.detailPendingSave,null);assert.equal(h.writes(),1);assert.equal(h.opens(),1);
+});
+test('an already dispatched snapshot cannot re-enable the workspace after another request observes quota',async()=>{
+ const h=setup();h.mode('deferred');const previous=h.context.currentPayload,pending=h.context.loadTasks();await new Promise(setImmediate);
+ let paused=0;h.context.cloudBrake={status:()=>({code:'daily_quota_exceeded'})};h.context.applyCloudBrake=()=>{paused++;h.context.currentEditable=false;};
+ h.resolveRead();assert.equal(await pending,false);assert.equal(h.context.currentPayload,previous);assert.equal(h.context.currentEditable,false);assert.equal(paused,1);
 });
 test('a read older than the accepted version cannot unlock labels, fields or completion or resend the write',async()=>{
  const h=setup();h.mode('lagging');await h.autosave.flush();assert.equal(h.context.currentEditable,true);assert.equal(h.get('details-save-status').textContent,'Saved · waiting for refresh');await h.context.loadTasks();assert.equal(h.get('details-new-label').disabled,true);assert.equal(h.get('details-notes').disabled,true);assert.equal(h.get('details-completion').disabled,true);assert.equal(h.context.detailPendingSave.entityVersion,2);assert.equal(h.writes(),1);h.mode('online');await h.context.loadTasks();assert.equal(h.context.detailPendingSave,null);assert.equal(h.get('details-notes').disabled,false);

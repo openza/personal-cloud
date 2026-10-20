@@ -17,8 +17,8 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
       protocolVersion: 1,
       product: "tasks",
       artifactVersion: "0.0.0-test",
-      schemaVersion: 25,
-      capabilities:{mutationBatch:{protocolVersion:1,path:"/v1/tasks/mutations/batch",maxMutations:2,maxRequestUtf8Bytes:16384},workspace:{protocolVersion:1,path:"/v1/tasks/mutations",schemaVersion:25},providerCatalog:{protocolVersion:2,path:"/v1/provider/catalog",intentsPath:"/v1/provider/intents"},workspacePaging:{protocolVersion:1,bootstrapPath:"/sync/bootstrap",changesPath:"/sync/changes",maxResponseUtf8Bytes:2097152,maxPageRecords:100}},
+      schemaVersion: 26,
+      capabilities:{mutationBatch:{protocolVersion:1,path:"/v1/tasks/mutations/batch",maxMutations:2,maxRequestUtf8Bytes:16384},workspace:{protocolVersion:1,path:"/v1/tasks/mutations",schemaVersion:26},providerCatalog:{protocolVersion:2,path:"/v1/provider/catalog",intentsPath:"/v1/provider/intents"},workspacePaging:{protocolVersion:1,bootstrapPath:"/sync/bootstrap",changesPath:"/sync/changes",maxResponseUtf8Bytes:2097152,maxPageRecords:100},fanoutBudget:{protocolVersion:1,requestHeader:'x-openza-fanout-bound'},catchupStatus:{protocolVersion:1,path:'/sync/catchup-status',staleAfterSeconds:900},webPendingRecovery:{protocolVersion:1,path:'/auth/web-pending-change'}},
     });
   });
 
@@ -98,8 +98,8 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(browserCode).toContain("Unavailable · Last known");
     expect(browserCode).toContain("Cached tasks may be outdated and remain read only");
     expect(browserCode).toContain("Reconnecting to Personal Cloud");
-    expect(browserCode).toContain("45_000");
-    expect(browserCode).toContain("60_000");
+    expect(browserCode).toContain("proactiveRefreshMs=300_000");
+    expect(browserCode).toContain("proactiveRefreshMs+15000");
     expect(browserCode).toContain("retryRefreshMs=15_000");
     expect(browserCode).toContain("loadTasks({background:true})");
     expect(browserCode).toContain("readAllTasks(api)");
@@ -111,8 +111,9 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
     expect(browserCode).toContain("navigator.credentials.get");
     expect(browserCode).toContain('parameters.get("setup")');
     expect(browserCode).toContain("history.replaceState");
-    expect(browserCode).toContain('credentials:"same-origin"');
-    expect(browserCode).toContain('headers["x-openza-csrf"]');
+    const transport = await (await exports.default.fetch("https://personal-cloud.local/owner-api.js")).text();
+    expect(transport).toMatch(/credentials:\s*['"]same-origin['"]/);
+    expect(transport).toContain('headers["x-openza-csrf"]');
     expect(browserCode).toContain('location.pathname==="/settings"');
     expect(browserCode).toContain("tasksPanel.hidden=false");
     expect(browserCode).toContain("moveTaskTree");

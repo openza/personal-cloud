@@ -1,3 +1,4 @@
+import {throwDailyQuota} from "./daily-quota.ts";
 import { ContractError, canonicalize, computeCanonicalHash, type TaskRelationshipMutation } from "./protocol.ts";
 import { duplicateOrReuse, findReceipt, toReceipt, type Receipt } from "./mutation-receipt.ts";
 
@@ -75,7 +76,7 @@ export async function applyTaskRelationship(db: D1Database, mutation: TaskRelati
     db.prepare("UPDATE cloud_state SET next_change_seq=(SELECT change_seq FROM changes WHERE mutation_id=?1) WHERE singleton=1").bind(mutation.mutationId),
     db.prepare("INSERT INTO device_sequences(device_id,last_sequence) VALUES(?1,?2) ON CONFLICT(device_id) DO UPDATE SET last_sequence=excluded.last_sequence WHERE device_sequences.last_sequence+1=excluded.last_sequence").bind(mutation.deviceId,mutation.deviceSequence),
   ];
-  try { await db.batch(statements); } catch(error) {
+  try { await db.batch(statements); } catch(error) {throwDailyQuota(error);
     const raced=await findReceipt(db,mutation.mutationId); if(raced) return duplicateOrReuse(raced,hash);
     if (String(error).includes("task parent cycle")) throw new ContractError("invalid_request", "The parent relationship would create a cycle.");
     if(String(error).includes('active target Space required')||String(error).includes('active target project required'))throw new ContractError('invalid_request','An active target Space and unarchived project are required.');

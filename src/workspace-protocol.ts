@@ -3,7 +3,7 @@ import { ContractError, parseStrictJson, validateSafeSourceDescriptor } from './
 export const workspaceOperations = ['space.put','project.put','project.delete','task.createRich','task.patch','task.moveTree','provider.scope.put','provider.catalog.put','provider.intent.request','provider.intent.start','provider.intent.resolve'] as const;
 export type WorkspaceOperation = typeof workspaceOperations[number];
 export type WorkspaceMutation = {protocolVersion:1;product:'tasks';instanceId:string;deviceId:string;mutationId:string;deviceSequence:number;operation:WorkspaceOperation;entityId:string;baseEntityVersion:number|null;clientCreatedAt:string;payload:Record<string,any>};
-export const workspaceCapability={protocolVersion:1,path:'/v1/tasks/mutations',schemaVersion:25} as const;
+export const workspaceCapability={protocolVersion:1,path:'/v1/tasks/mutations',schemaVersion:26} as const;
 export const providerCatalogCapability={protocolVersion:2,path:'/v1/provider/catalog',intentsPath:'/v1/provider/intents'} as const;
 export function invalid(message:string):never {throw new ContractError('invalid_request',message);}
 export function object(value:unknown):Record<string,any>{if(!value||typeof value!=='object'||Array.isArray(value))invalid('Expected an object.');return value as Record<string,any>;}

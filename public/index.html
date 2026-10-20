@@ -103,6 +103,8 @@
           <button id="initial-sync-refresh" class="secondary-button" type="button">Refresh upload status and tasks</button>
         </details>
         <div id="notice" class="workspace-notice" aria-live="polite"><strong>Checking Personal Cloud…</strong><span>Confirming the latest synchronized tasks.</span></div>
+        <div id="fanout-draft" class="workspace-notice" aria-live="polite" hidden><strong>Large change saved in this browser</strong><span id="fanout-draft-copy"></span><div><button id="retry-fanout-draft" type="button">Review and try again</button><button id="cancel-fanout-draft" type="button">Remove saved change</button></div></div>
+        <div id="unfinished-web-change" class="workspace-notice" aria-live="polite" hidden><strong>Unfinished change</strong><span id="unfinished-web-copy">Check this unfinished change before sending more changes. You can still view the latest tasks.</span><button id="check-unfinished-web-change" type="button">Check unfinished change</button></div>
         <div id="task-list" class="task-list" aria-busy="true"></div><p id="last-updated" class="last-updated"></p></div>
       </div>
       </div>

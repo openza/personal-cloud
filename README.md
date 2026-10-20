@@ -10,6 +10,7 @@ Every synchronized row belongs to the same Openza `tasks` collection. A task may
 - Openza task title, workflow status, priority, planning, completion/reopen, deletion, project, Space, label, and parent operations.
 - Safe source-linked tasks, source refresh, pending desktop commands, provider confirmation/rejection, coalescing, stale refresh rejection, and multi-desktop resolution.
 - A Web task experience that uses the same semantic operations and becomes read-only when only stale cached data is available.
+- Typed daily-limit pauses, durable local dispatch reservations and bounded idle polling. See the [quota contract and measurement limits](docs/quota-pause-v1.md).
 - Task views, add/edit, completion/reopen, deletion, search, sorting, grouping, Spaces, projects, labels and responsive navigation. Native subtask creation is not offered; adopted provider task hierarchies are preserved.
 - Full-list Web loading in bounded pages, with restart on concurrent changes rather than publishing a truncated or mixed task list. Search and filters operate on the completed read.
 - Owner WebAuthn passkey setup and sign-in, secure opaque sessions, rotation, expiry, CSRF/origin enforcement, sign-out, recovery-code rotation, and revocation of lost credentials.
@@ -24,6 +25,7 @@ npm install
 npm run typecheck
 npm run test:rebootstrap
 npm run test:web
+npm run test:quota
 npm test
 npx wrangler d1 migrations apply DB --local
 npx wrangler dev --local
@@ -46,6 +48,8 @@ To exercise the browser flow manually, place a strong one-time `OWNER_BOOTSTRAP_
 
 The local checks above do not create or modify Cloudflare account resources. Desktop guided OAuth setup, provisioning, backup, update, disconnect and removal are implemented in the companion Tasks repository. Any live rehearsal or deployment requires separate authorization; source tests are not proof that a deployed cloud runs this version. Check `/health` for artifact/schema versions.
 
+See the [architecture and extension rules](docs/architecture.md) for module/state ownership and the [compatibility matrix](docs/compatibility-matrix.md) for exact source support, artifact pins and tested local pairs.
+
 The permanent Desktop provisioning flow consumes a versioned, checksum-manifested artifact. Build one locally without contacting a Cloudflare account:
 
 ```sh
@@ -60,4 +64,4 @@ The `_headers` file is checksum-recorded artifact metadata, not a public downloa
 
 Read [security and privacy](SECURITY.md), [setup/lifecycle/rollback precautions](docs/lifecycle.md), and [public release preparation](docs/public-release.md). Task data is access-controlled but not end-to-end encrypted. The browser retains a local cached task copy, including after sign-out. Provider tokens are never uploaded.
 
-The original Linux handoff and subsequent Windows evidence are distinguished in [Windows continuation](docs/windows-continuation.md) and [local validation](docs/local-parity-validation.md). They do not establish WinUI feature parity, comprehensive native accessibility or fresh Snap acceptance. Live lifecycle rehearsals, public OAuth availability and release acceptance remain separate gates; building, committing or pushing source does not deploy it.
+The original Linux snapshot and subsequent Windows evidence are distinguished in [Windows continuation](docs/windows-continuation.md) and [local validation](docs/local-parity-validation.md). They do not establish WinUI feature parity, comprehensive native accessibility or fresh Snap acceptance. Live lifecycle rehearsals, public OAuth availability and release acceptance remain separate gates; building, committing or pushing source does not deploy it.
