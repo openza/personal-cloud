@@ -24,6 +24,27 @@ describe.sequential('daily quota preserves error identity and accepted prefixes'
   expect(dailyQuotaError(new Error('outer',{cause:quota()}))).not.toBeNull();
   let deep:Error=quota();for(let i=0;i<5;i++)deep=new Error('wrap',{cause:deep});expect(dailyQuotaError(deep)).toBeNull();
  });
+ it('matches both exact documented daily messages including the limits-link suffix',()=>{
+  for(const [kind,resource]of [['read','d1_rows_read'],['write','d1_rows_written']]as const){
+   const message=`Your account has exceeded D1's free tier daily row ${kind} limit. Upgrade to a paid plan or wait until tomorrow (midnight UTC) to continue. See https://developers.cloudflare.com/d1/platform/limits/ for more details.`;
+   // Mirrors workerd's message/cause wrapper without inventing a quota code.
+   const error=new Error('D1_ERROR: '+message,{cause:new Error(message)});
+   expect(dailyQuotaError(error,new Date(fixture.observedAt))?.quota.resource).toBe(resource);
+  }
+ });
+ it('does not treat generic codes, HTTP limits or quoted SQL/user text as daily exhaustion',()=>{
+  for(const error of [
+   {code:'D1_ERROR',message:'Too many requests',status:429},
+   {code:'D1_DAILY_QUOTA_EXCEEDED',message:'undocumented code'},
+   new Error('D1_ERROR'),new Error('D1_ERROR: SQL logic error'),
+   new Error('D1_ERROR: SELECT "Your account has exceeded D1\'s free tier daily row read limit."'),
+   new Error('429 Too Many Requests'),new Error('daily row read limit exceeded'),
+   "Your account has exceeded D1's free tier daily row read limit.",
+   new Error(quota().message+' '.repeat(4097)),
+  ])expect(dailyQuotaError(error)).toBeNull();
+  const cycle:{message:string;cause?:unknown}={message:'D1_ERROR'};cycle.cause=cycle;
+  expect(dailyQuotaError(cycle)).toBeNull();
+ });
  it('health quota stays typed instead of becoming schema_not_ready',async()=>{
   const db={prepare:()=>{throw quota();}} as unknown as D1Database;
   await assertQuota(await worker.fetch(new Request('https://cloud.example/health'),{...baseEnv,DB:db}));

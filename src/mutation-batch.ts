@@ -35,12 +35,13 @@ export async function applyMutationBatch(
   instanceId: string,
   items: ReturnType<typeof parseMutationBatch>,
   publicError: (error: unknown) => unknown,
+  options:{fanoutBound?:number}={},
 ) {
   const receipts: Receipt[] = [];
   for (let index = 0; index < items.length; index++) {
     try {
       const item = items[index];
-      receipts.push(await applyMutation(db, item.mutation, item.raw));
+      receipts.push(await applyMutation(db, item.mutation, item.raw,options));
     } catch (error) {
       return { protocolVersion: 1, product: "tasks", instanceId, receipts,
         processedCount: receipts.length, stoppedAt: index, error: publicError(error) };

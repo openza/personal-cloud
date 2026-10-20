@@ -12,20 +12,21 @@ async function assertNotReady(){
  expect(body.error.code).toBe('schema_not_ready');
  expect(JSON.stringify(body)).not.toMatch(/SELECT|sqlite|updated_at|trigger|table|database_id/);
 }
-describe.sequential('schema25 health readiness',()=>{
+describe.sequential('schema26 health readiness',()=>{
  it('accepts the fully migrated binding without changing the success shape',async()=>{
   expect(await schemaReady(env.DB)).toBe(true);
   const response=await health();expect(response.status).toBe(200);
-  const body=await response.json() as {schemaVersion:number};expect(body.schemaVersion).toBe(25);
+  const body=await response.json() as {schemaVersion:number};expect(body.schemaVersion).toBe(26);
  });
  for(const name of ['tasks_initial_updated_at','tasks_accepted_updated_at','changes_workspace_response_limit',
    'workspace_task_project_insert','provider_delivery_result_owned','mutation_receipts_are_immutable_before_update',
-   'provider_delivery_one_active_source','source_descriptors_identity']){
+   'provider_delivery_one_active_source','source_descriptors_identity','sync_catchup_status','web_fanout_budget','web_pending_resolutions','web_pending_resolutions_immutable_update','web_pending_resolutions_immutable_delete','mutation_receipt_not_cancelled','web_pending_not_applied']){
   it(`fails closed when required object ${name} is missing`,async()=>{
    const original=await env.DB.prepare('SELECT type,sql FROM sqlite_master WHERE name=?1').bind(name).first<{type:string,sql:string}>();
    if(!original)throw Error('Missing test fixture object');
+   const dependents=original.type==='table'?(await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name=?1").bind(name).all<{sql:string}>()).results:[];
    await env.DB.prepare(`DROP ${original.type} ${name}`).run();
-   try{await assertNotReady();}finally{await env.DB.prepare(original.sql).run();}
+   try{await assertNotReady();}finally{await env.DB.prepare(original.sql).run();for(const trigger of dependents)await env.DB.prepare(trigger.sql).run();}
    expect(await schemaReady(env.DB)).toBe(true);
   });
  }

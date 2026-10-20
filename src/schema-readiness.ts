@@ -1,5 +1,5 @@
 import {throwDailyQuota} from "./daily-quota.ts";
-// Schema 25 readiness checks metadata and resolves required columns without reading rows.
+// Schema 26 readiness checks metadata and resolves required columns without reading rows.
 // This is a readiness contract, not a replacement for checksum migration preflight.
 const requiredColumns: Record<string, readonly string[]> = {
   auth_challenges: ["challenge_hash", "purpose", "credential_id", "expires_at", "consumed_at", "attempt_count", "created_at"],
@@ -17,6 +17,9 @@ const requiredColumns: Record<string, readonly string[]> = {
   external_command_resolutions: ["task_id", "requested_change_seq", "mutation_id", "state", "resolved_at", "error_code", "claim_id", "resolving_device_id"],
   external_commands: ["task_id", "command", "state", "requested_change_seq", "updated_at", "error_code"],
   initial_sync_status: ["device_id", "report_sequence", "state", "acknowledged", "total", "error_code", "updated_at"],
+  sync_catchup_status: ["device_id", "report_sequence", "state", "pending", "finished_at", "updated_at"],
+  web_fanout_budget: ["day", "credits"],
+  web_pending_resolutions: ["mutation_id", "device_id", "device_sequence", "canonical_hash", "canonical_request", "cancelled_at"],
   labels: ["id", "name", "deleted_at"],
   mutation_receipts: ["mutation_id", "protocol_version", "product", "canonical_request", "canonical_hash", "entity_id", "entity_version", "change_seq", "server_accepted_at"],
   owner_bootstrap: ["singleton", "grant_hash", "expires_at", "consumed_at"],
@@ -56,6 +59,13 @@ const requiredObjects = [
   ["table", "external_command_resolutions", "external_command_resolutions"],
   ["table", "external_commands", "external_commands"],
   ["table", "initial_sync_status", "initial_sync_status"],
+  ["table", "sync_catchup_status", "sync_catchup_status"],
+  ["table", "web_fanout_budget", "web_fanout_budget"],
+  ["table", "web_pending_resolutions", "web_pending_resolutions"],
+  ["trigger", "web_pending_resolutions_immutable_update", "web_pending_resolutions"],
+  ["trigger", "web_pending_resolutions_immutable_delete", "web_pending_resolutions"],
+  ["trigger", "mutation_receipt_not_cancelled", "mutation_receipts"],
+  ["trigger", "web_pending_not_applied", "web_pending_resolutions"],
   ["table", "labels", "labels"],
   ["table", "mutation_receipts", "mutation_receipts"],
   ["table", "owner_bootstrap", "owner_bootstrap"],

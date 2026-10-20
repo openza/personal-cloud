@@ -15,8 +15,8 @@ export function mutationCapability(mutation: TaskMutation): "desktop_sync" | "pr
 }
 
 // Single and sequential batch endpoints share the exact existing handlers.
-export async function applyMutation(db: D1Database, mutation: TaskMutation, raw: string) {
-  if(workspaceOperations.includes(mutation.operation as any)) return applyWorkspaceMutation(db,mutation as WorkspaceMutation,raw);
+export async function applyMutation(db: D1Database, mutation: TaskMutation, raw: string, options:{fanoutBound?:number;ownerSession?:boolean}={}) {
+  if(workspaceOperations.includes(mutation.operation as any)) return applyWorkspaceMutation(db,mutation as WorkspaceMutation,raw,options);
   if (mutation.operation === "task.create") return applyTaskCreate(db, mutation, raw);
   if (mutation.operation === "task.complete") return applyTaskComplete(db, mutation, raw);
   if (mutation.operation === "task.reopen") return applyTaskReopen(db, mutation, raw);

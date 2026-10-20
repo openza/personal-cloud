@@ -3,10 +3,23 @@
 See [budget validation](quota-budget-validation-v1.md) for measured route
 costs and the derived workload assumptions.
 
-This additive error/client-state contract preserves protocol 1, schema 25,
+D1 daily-row exhaustion is identified by the specific read/write messages in
+Cloudflare's [D1 error list](https://developers.cloudflare.com/d1/observability/debug-d1/),
+verified against the official documentation on 20 October 2026. The
+[binding implementation](https://github.com/cloudflare/workerd/blob/main/src/cloudflare/internal/d1-api.ts)
+wraps errors with a generic `D1_ERROR` prefix and a cause; that prefix is not a
+quota-specific code. The classifier bounds message length and cause traversal,
+matches the documented daily-row signal, and returns a fixed safe message.
+Generic 429 responses, SQL errors, storage limits and unrecognized codes do not
+establish daily exhaustion. No live quota was induced for this verification.
+
+This additive error/client-state contract preserves protocol 1,
 manifest 1, healthy capabilities and release pins. Upgrading an older installed
 profile requires a compatible newer Desktop plus the candidate artifact. No live
 quota was triggered to validate this contract.
+
+Schema 26 adds [current catch-up reporting](catchup-status-v1.md) and an atomic
+shared Web fan-out allowance; it does not change canonical mutation identity.
 
 ## D1 and Workers errors
 
@@ -96,9 +109,45 @@ The shared [cost table](../test/fixtures/dispatch-budget-v1.json) reserves 45,00
 write credits, 3,000 envelopes and 10,000 Worker-origin API attempts per UTC day. Credits are
 conservative workload units, not billed D1 rows or an account-global guarantee.
 Each patch costs 25, source refresh 16, known single-entity operation 50; rich
-creation adds 10 per label and creation with a source adds 16. Project deletion
-and subtree movement reserve the whole 45,000 because their fanout is not bounded
-by the envelope. A transmitted batch sums every original ordered envelope.
+creation adds 10 per label and creation with a source adds 16. A transmitted batch
+sums every original ordered envelope.
+
+Project deletion and subtree movement use the additive
+[fan-out budget contract](../test/fixtures/fanout-budget-v1.json) when health
+advertises `capabilities.fanoutBudget` with `protocolVersion: 1` and
+`requestHeader: "x-openza-fanout-bound"`. The optional header is a canonical
+nonnegative safe integer upper bound, outside the immutable mutation body. It
+applies separately to each fan-out operation in a single or batch request.
+Reservation is `100 + 12 × bound` credits per attempt. For project deletion,
+count live affected tasks plus live direct child projects; the base covers the
+deleted project. For a move, count the live whole subtree including its root.
+Use a complete confirmed snapshot, with total local tasks and projects as a
+conservative fallback for recovered pending changes whose references changed.
+
+The Worker checks exact accepted receipts first, then checks the bound before
+execution and again atomically. A stale bound returns retryable HTTP 409
+`fanout_bound_exceeded`, saving no mutation. Refresh, reestimate and retry with
+the same body, ID, sequence and digest; do not loop without backoff. Web retries
+once after a confirmed read and retains a repeatedly rejected pending envelope.
+Neither this contract nor the header adds a count limit; the existing 1.9 MB
+compound-change limit remains. Without the matching capability or a known bound,
+reserve the conservative legacy 45,000 credits. Never clamp a scaled cost to the
+daily allowance. An over-day operation remains pending for an explicitly approved
+one-attempt recovery path; automatic next-day retries stay stopped.
+
+Web uses a separate cumulative fan-out subbudget: 1,000 credits/day during
+catch-up, unknown progress or the completion day, and 12,000 after verified
+completion and the next UTC day. The Worker enforces the same counter across Web
+tabs. New deferred operations remain visible unallocated browser drafts, with
+review/retry and cancel controls; ordinary edits and downloads continue. Above
+the Web subbudget, use Desktop. An existing canonical pending change retains FIFO
+and can hold later browser writes; it is never automatically rewritten or dropped.
+
+Local write-credit/envelope holds pause uploads while metered health, auth and
+data reads can continue. Actual cloud quota, the HTTP cap and durable-storage
+failures still stop requests. Every retry consumes its full reservation, without
+refund. The bounds protect write-cost estimation; they do not establish a
+workspace-independent row-read ceiling or shared-account enforcement.
 Unknown or over-whole-day operations remain pending with a visible permanent
 local stop, without automatic next-day retries. Retries and unknown results spend
 the complete reservation; only new UTC days replenish it, never clock rollback.

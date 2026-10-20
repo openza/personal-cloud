@@ -27,6 +27,7 @@ function setup(){
     api:async path=>{if(path==='/auth/signout')signouts++;return{};},rotateSession:async()=>{},readAllTasks:async()=>{if(mode==='lagging')return cached;if(mode==='offline')throw new Error('Read unavailable');if(mode==='unauthorized')throw Object.assign(new Error('Signed out'),{status:401});if(mode==='deferred')return await new Promise(resolve=>deferred=resolve);return payload();},
     sendMutation:async(id,version,operation,p)=>{writes++;assert.equal(id,task.id);assert.equal(operation,'task.patch');if(version!==server.entityVersion)throw Object.assign(new Error('Task changed'),{code:'version_conflict',status:409});server={...server,...p.fields,entityVersion:version+1};return{entityId:id,entityVersion:server.entityVersion,outcome:'accepted'};},
   });
+  context.renderFanoutDraft=()=>{};context.renderPendingWebChange=()=>{};
   for(const name of ['loadTasks','loadTaskSnapshot'])vm.runInContext(source.match(new RegExp(`^async function ${name}\\([^]*?^}`,'m'))[0],context);
   for(const name of ['saveTask','finishMutations','signOut','openDetails','readDetailFields','captureDetailDraft','refreshOpenDetailsStatus','isCurrentDetail','showAcceptedDetailSave','confirmPendingDetailSave','lockWorkspaceDetailFields','setDialogBusy'])extract(context,name);
   context.renderWorkspace=(p,state)=>{context.currentPayload=p;context.currentEditable=state==='current';context.refreshOpenDetailsStatus();};

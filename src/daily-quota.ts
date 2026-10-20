@@ -12,7 +12,10 @@ export class DailyQuotaError extends ContractError {
     this.quota={protocolVersion:1,resource,resetAt:nextUtcReset(now)};
   }
 }
-// Only documented D1 daily row errors qualify. Never return source error/SQL text.
+// Cloudflare's D1 error list documents these specific messages. D1_ERROR is a
+// generic binding prefix, not a daily-quota code; the binding wraps message/cause.
+// https://developers.cloudflare.com/d1/observability/debug-d1/
+// Never classify generic status/code fields or return source error/SQL text.
 export function dailyQuotaError(error:unknown,now=new Date()):DailyQuotaError|null {
   const seen=new Set<unknown>();
   for(let depth=0;depth<4&&error&&typeof error==='object'&&!seen.has(error);depth++){

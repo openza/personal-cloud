@@ -10,6 +10,11 @@ checked on 19 October 2026. The inspected Desktop candidate pins schema 20
 remain separate. No installed/deployed version, new release pin or fresh live
 OAuth acceptance is inferred from that source inspection.
 
+Schema 26 source adds [current catch-up and Web bulk safeguards](catchup-status-v1.md).
+The recorded schema 25 artifact does not contain that migration or behavior.
+Package and verify a schema 26 artifact with its matching Desktop consumer before
+an approved upgrade; existing artifact pins are unchanged.
+
 ## Historical preparation snapshot — 11 October 2026
 
 The following statements record checks on 11 October 2026 against cloud source

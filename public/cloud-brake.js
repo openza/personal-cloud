@@ -62,13 +62,15 @@ export function createCloudBrake({storage,locks,origin,getInstance=()=>null,now=
   });}
   async function run(path,envelopes,action,writeCredits=0){
     if(!Number.isSafeInteger(envelopes)||envelopes<0||!Number.isSafeInteger(writeCredits)||writeCredits<0)throw Error('Invalid dispatch reservation.');
-    const initial=read(),isResume=Boolean(initial.hold);
+    const uploadOnly=hold=>hold&&(hold.code==='local_operation_budget_exceeded'||hold.code==='local_budget_exceeded'&&['writeCredits','envelopes'].includes(hold.resource));
+    const initial=read(),readDuringUploadHold=Boolean(uploadOnly(initial.hold)&&envelopes===0&&writeCredits===0&&(initial.hold.code==='local_operation_budget_exceeded'||effective(initial)<Date.parse(initial.hold.resetAt)));
+    const isResume=Boolean(initial.hold)&&!readDuringUploadHold;
     if(isResume){const earliest=Math.max(Date.parse(initial.hold.resetAt),Date.parse(initial.hold.retryAt??initial.hold.resetAt));
       if(initial.hold.code==='local_operation_budget_exceeded'||effective(initial)<earliest||path!=='/health')throw failure();}
     const execute=async()=>{
       let held;
       await atomic(()=>{
-        const s=read();if(s.hold){const earliest=Math.max(Date.parse(s.hold.resetAt),Date.parse(s.hold.retryAt??s.hold.resetAt));
+        const s=read();if(s.hold&&!readDuringUploadHold){const earliest=Math.max(Date.parse(s.hold.resetAt),Date.parse(s.hold.retryAt??s.hold.resetAt));
           if(!isResume||path!=='/health'||effective(s)<earliest)throw failure();held=JSON.stringify(s.hold);}
         const day=new Date(effective(s)).toISOString().slice(0,10);if(s.day<day){s.day=day;s.requests=0;s.envelopes=0;s.writeCredits=0;}
         if(writeCredits>limits.writeCredits||envelopes>limits.envelopes){s.hold=localHold('local_operation_budget_exceeded','writeCredits');save(s);throw failure();}
@@ -80,7 +82,7 @@ export function createCloudBrake({storage,locks,origin,getInstance=()=>null,now=
       try{
         // Another tab may have persisted a pause while this reservation's lock
         // was being released. A reservation never grants permission past it.
-        const latest=read();if(held?JSON.stringify(latest.hold)!==held:Boolean(latest.hold))throw failure();
+        const latest=read();if(held?JSON.stringify(latest.hold)!==held:Boolean(latest.hold)&&!(readDuringUploadHold&&uploadOnly(latest.hold)))throw failure();
         const value=await action();
         if(held)await atomic(()=>{const s=read();if(JSON.stringify(s.hold)!==held)return;
           if(value.response.ok&&value.result?.status==='ok'&&value.result.protocolVersion===1&&value.result.product==='tasks')s.hold=null;
@@ -97,5 +99,6 @@ export function createCloudBrake({storage,locks,origin,getInstance=()=>null,now=
   const rememberAuth=locallySignedOut=>atomic(()=>{const s=read();s.locallySignedOut=locallySignedOut;if(!save(s)){s.hold??=localHold('local_storage_unavailable','storage');notify();}});
   return{run,pause,status,refresh:notify,referenceTime:clock,isLocallySignedOut:()=>read().locallySignedOut===true,
     rememberSignOut:()=>rememberAuth(true),rememberSignIn:()=>rememberAuth(false),remainingDelay:()=>{const s=read();return s.hold?Math.max(0,Math.max(Date.parse(s.hold.resetAt),Date.parse(s.hold.retryAt??s.hold.resetAt))-effective(s)):null;},
+    canRead:()=>{const hold=read().hold;return !hold||hold.code==='local_operation_budget_exceeded'||hold.code==='local_budget_exceeded'&&['writeCredits','envelopes'].includes(hold.resource);},
     canSend:()=>!read().hold};
 }

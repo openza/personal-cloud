@@ -5,6 +5,8 @@ import {readFileSync} from 'node:fs';
 import {randomUUID} from 'node:crypto';
 import {createCloudBrake} from '../public/cloud-brake.js';
 import {createOwnerApi} from '../public/owner-api.js';
+import {createFanoutDrafts} from '../public/fanout-draft.js';
+import {createPendingWebRecovery} from '../public/pending-web-recovery.js';
 import * as workspace from '../public/workspace-query.js';
 const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8').match(/^function applyCloudBrake\([^]*?^}/m)[0];
 function harness({settings=false,signedOut=false,oversized=false,durable=true}={}){
@@ -39,7 +41,7 @@ async function fullStartup(failure=null){
  const node=id=>{if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);};
  const localStorage={getItem:k=>{if(failure==='get')throw Error('Synthetic blocked storage');return storage.get(k)??null;},setItem:(k,v)=>{if(failure==='set')throw Error('Synthetic blocked storage');storage.set(k,v);},removeItem:k=>storage.delete(k)};
  const context=vm.createContext({...workspace,URL,Date,crypto:{randomUUID},localStorage,sessionStorage:{getItem:()=>null,removeItem(){}},location:{origin,pathname:'/',href:origin+'/',hash:''},history:{replaceState(){}},window:{addEventListener(){}},navigator:{locks:{request:async(_name,fn)=>fn({})}},document:{querySelector:node,querySelectorAll:()=>[],getElementById:id=>node('#'+id),createElement:element,addEventListener(){},body:{classList:{add(){}}}},createCloudBrake,createInitialStatusMonitor:()=>({stop(){}}),createMutationSender:()=>()=>{},createOwnerApi:()=>()=>{sends++;throw Error('HTTP forbidden during stored brake startup');},createOwnerSettings:()=>({}),createWorkspaceControls:()=>({render(){}}),createDetailAutosave:()=>({}),captureTaskRowInteraction:()=>null,restoreTaskRowInteraction(){},clearTimeout(){},setTimeout:()=>1,queueMicrotask,Option:class{constructor(text,value){this.text=text;this.value=value;}}});
- context.URLSearchParams=URLSearchParams;
+ context.createFanoutDrafts=createFanoutDrafts;context.createPendingWebRecovery=createPendingWebRecovery;context.URLSearchParams=URLSearchParams;
  context.window.PublicKeyCredential=function(){};context.navigator.credentials={};node('#tasks-panel').hidden=true;
  context.createOwnerApi=options=>createOwnerApi({...options,fetch:async()=>{sends++;throw Error('HTTP forbidden during braked startup');}});
  let module=readFileSync(new URL('../public/app.js',import.meta.url),'utf8').replace(/^import[^\n]+\n/gm,'');

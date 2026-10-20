@@ -37,17 +37,17 @@ test('format1 artifact retains the exact Desktop fields, ordered migrations and 
   if(entry.file.startsWith('assets/'))assert.equal(entry.path,'/'+entry.file.slice('assets/'.length));
  }
  const migrations=(await fs.readdir('migrations')).filter(n=>n.endsWith('.sql')).sort();
- assert.equal(migrations.length,25);assert.deepEqual(m.migrations.map(e=>path.basename(e.file)),migrations);
+ assert.equal(migrations.length,26);assert.deepEqual(m.migrations.map(e=>path.basename(e.file)),migrations);
  for(const [i,name]of migrations.entries()){
   assert.equal(Number(name.slice(0,4)),i+1);
   assert.equal(await fs.readFile(path.join(directory,'migrations',name),'utf8'),(await fs.readFile(path.join('migrations',name),'utf8')).replaceAll('\r\n','\n'));
  }
- for(const name of ['owner-api.js','owner-settings.js','app.js','mutation-queue.js','workspace-controls.js','_headers']){
+ for(const name of ['owner-api.js','owner-settings.js','app.js','mutation-queue.js','workspace-controls.js','fanout-draft.js','_headers']){
   assert.equal(await fs.readFile(path.join(directory,'assets',name),'utf8'),await fs.readFile(path.join('public',name),'utf8'));
  }
 });
 
-test('built Worker health rejects schema17/20/22/24, then accepts populated schema25 without losing receipts',enabled,async()=>{
+test('built Worker health rejects schema17/20/22/24/25, then accepts populated schema26 without losing receipts',enabled,async()=>{
  const m=await manifest(),mf=new Miniflare(convertV4MiniflareOptions({modules:true,scriptPath:path.resolve(directory,'worker.js'),compatibilityDate:m.compatibilityDate,
   d1Databases:{DB:'artifact-health-upgrade'},bindings:{INSTANCE_ID:'synthetic_artifact',ARTIFACT_VERSION:m.artifactVersion},host:'127.0.0.1',port:0}));
  try{
@@ -57,7 +57,7 @@ test('built Worker health rejects schema17/20/22/24, then accepts populated sche
   await unavailable();
   for(const [i,migration]of (await readD1Migrations(path.join(directory,'migrations'))).entries()){
    await DB.batch(migration.queries.map(sql=>DB.prepare(sql)));
-   if([17,20,22,24].includes(i+1))await unavailable();
+   if([17,20,22,24,25].includes(i+1))await unavailable();
    if(i+1===22)await DB.batch([
     DB.prepare("INSERT INTO tasks(id,product,space_id,title,completion_state,workflow_status,priority,created_at,entity_version,created_by_mutation_id) VALUES('synthetic_task','tasks','space_default','Synthetic upgrade','open','inbox',3,'2026-10-19T00:00:00Z',1,'synthetic_created')"),
     DB.prepare("INSERT INTO changes VALUES(1,1,'tasks','synthetic_created','task.created','task','synthetic_task',1,'{}','2026-10-19T00:00:00Z')"),
@@ -67,7 +67,7 @@ test('built Worker health rejects schema17/20/22/24, then accepts populated sche
   }
   const response=await health();assert.equal(response.status,200);const body=await response.json();
   assert.deepEqual(Object.keys(body).sort(),['status','protocolVersion','product','artifactVersion','schemaVersion','capabilities'].sort());
-  assert.equal(body.schemaVersion,25);assert.equal(body.artifactVersion,m.artifactVersion);assert.equal(body.capabilities.workspace.schemaVersion,25);
+  assert.equal(body.schemaVersion,26);assert.equal(body.artifactVersion,m.artifactVersion);assert.equal(body.capabilities.workspace.schemaVersion,26);
   assert.equal((await DB.prepare("SELECT change_seq FROM mutation_receipts WHERE mutation_id='synthetic_created'").first()).change_seq,1);
   assert.equal((await DB.prepare("SELECT mutation_id FROM entity_version_claims WHERE entity_id='synthetic_task'").first()).mutation_id,'synthetic_claim');
   assert.equal((await DB.prepare("SELECT updated_at FROM tasks WHERE id='synthetic_task'").first()).updated_at,'2026-10-19T00:00:00Z');

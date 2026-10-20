@@ -147,8 +147,8 @@ test('weighted reservations are atomic, retries/crashes spend credits, and whole
 test('unknown or over-day compound operations stop visibly without automatic next-day retries or a send',async()=>{
  const h=harness();let sends=0;
  await assert.rejects(h.brake.run('/write',1,async()=>{sends++;},45001),e=>e.code==='local_operation_budget_exceeded');
- h.advance(4*86400000);await assert.rejects(h.run('/health'),e=>e.code==='local_operation_budget_exceeded');assert.equal(sends,0);
- const before=JSON.parse([...h.values.values()][0]);assert.equal(before.requests,0);assert.equal(before.writeCredits,0);
+ h.advance(4*86400000);await h.run('/health');assert.equal(h.brake.status().code,'local_operation_budget_exceeded');assert.equal(sends,0);
+ const before=JSON.parse([...h.values.values()][0]);assert.equal(before.requests,1);assert.equal(before.writeCredits,0);
 });
 test('a quota response from a retired session still persists origin brake and keeps exact pending envelope',async()=>{
  const h=harness();let generation=0,release;

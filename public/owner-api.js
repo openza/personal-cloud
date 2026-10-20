@@ -1,13 +1,13 @@
 // HTTP owns serialization, CSRF retry and the session boundary. It never renders.
 import {typedQuota,workers1027,boundedErrorText,responseTime,nextUtcReset} from './quota-errors.js?v=quota-1';
-import {requestCredits} from './dispatch-cost.js?v=quota-1';
+import {requestCredits,requestFanoutBound,fanoutBudget} from './dispatch-cost.js?v=quota-1';
 export function sessionChanged(dispatched = false) {
   return Object.assign(new Error("The owner session changed. Retry from the current session."), {
     code: "session_changed", dispatched,
   });
 }
 
-export function createOwnerApi({ fetch, locks, getGeneration, getCsrf, setCsrf, brake }) {
+export function createOwnerApi({ fetch, locks, getGeneration, getCsrf, setCsrf, brake, getFanoutContext=()=>({}), refreshFanout, reserveFanout }) {
   return async function api(path, options = {}) {
     const generation = getGeneration();
     const body = options.body === undefined ? undefined : JSON.stringify(options.body);
@@ -17,9 +17,12 @@ export function createOwnerApi({ fetch, locks, getGeneration, getCsrf, setCsrf, 
     };
     const perform = async () => {
       assertCurrent();
-      for (let attempt = 0; attempt < 2; attempt++) {
+      let csrfRetried=false,fanoutRetried=false;
+      for (let attempt = 0; attempt < 3; attempt++) {
         assertCurrent();
         const headers = {};
+        const fanoutBound=requestFanoutBound(path,options.body,getFanoutContext());
+        if(fanoutBound!==undefined)headers[fanoutBudget.requestHeader]=String(fanoutBound);
         if (body !== undefined) headers["content-type"] = "application/json";
         if (options.csrf) {
           if (!getCsrf()) throw new Error("Sign in again to continue.");
@@ -28,6 +31,7 @@ export function createOwnerApi({ fetch, locks, getGeneration, getCsrf, setCsrf, 
         let response, result;
         try {
           const send=async()=>{
+            if(path==='/v1/tasks/mutations'||path==='/v1/tasks/mutations/batch')await reserveFanout?.(options.body,requestCredits(path,options.body,fanoutBound));
             assertCurrent();dispatched=true;
             const deadline=path==='/health'&&brake?.status()?AbortSignal.timeout(10000):null;
             const signal=deadline?(options.signal?AbortSignal.any([deadline,options.signal]):deadline):options.signal;
@@ -52,7 +56,7 @@ export function createOwnerApi({ fetch, locks, getGeneration, getCsrf, setCsrf, 
             return {response,result};
           };
           const envelopes=path==='/v1/tasks/mutations'?1:path==='/v1/tasks/mutations/batch'?options.body?.mutations?.length??0:0;
-          const sent=brake?await brake.run(path,envelopes,send,requestCredits(path,options.body)):await send();
+          const sent=brake?await brake.run(path,envelopes,send,requestCredits(path,options.body,fanoutBound)):await send();
           response=sent.response;result=sent.result;assertCurrent();
         } catch (error) {
           assertCurrent();
@@ -63,7 +67,8 @@ export function createOwnerApi({ fetch, locks, getGeneration, getCsrf, setCsrf, 
           status: response.status, code: result?.error?.code,
           ...(result?.error?.quota?{quota:result.error.quota}:{}),
         });
-        if (options.csrf && attempt === 0 && response.status === 403 && error.code === "csrf_failed") {
+        if (options.csrf && !csrfRetried && response.status === 403 && error.code === "csrf_failed") {
+          csrfRetried=true;
           // This attempt was definitively rejected before domain execution.
           dispatched = false;
           try {
@@ -77,6 +82,11 @@ export function createOwnerApi({ fetch, locks, getGeneration, getCsrf, setCsrf, 
             error.cause = refreshError;
             throw error;
           }
+          continue;
+        }
+        if(!fanoutRetried&&response.status===409&&error.code==='fanout_bound_exceeded'&&refreshFanout){
+          fanoutRetried=true;
+          await refreshFanout();assertCurrent();
           continue;
         }
         throw error;

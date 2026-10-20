@@ -1,14 +1,16 @@
 # Cloud upgrade compatibility v1
 
 This contract coordinates Personal Cloud and Tasks Desktop. It preserves protocol
-1, schema 25, manifest format 1 and existing successful health fields/capabilities.
-It adds no migration and does not change a release artifact pin.
+1, manifest format 1 and existing successful health fields/capabilities. Schema 26
+adds [current catch-up reporting and Web bulk safeguards](catchup-status-v1.md).
+Release artifact pins remain unchanged; schema 26 needs a matching Desktop consumer.
 
 ## Health and deployment
 
 `GET /health` returns the existing success response only after a bounded read-only
 probe resolves every required table/column and finds the required named indexes
-and triggers, including schema 24 paging and schema 25 modification-time objects.
+and triggers, including schema 24 paging, schema 25 modification-time objects and
+schema 26 catch-up/allowance tables.
 The probe reads schema metadata and compiles zero-row column queries; it does not
 scan tasks, receipts or history. An incomplete, empty or unavailable D1 binding
 returns HTTP 503, `Cache-Control: no-store` and a generic `schema_not_ready` error.

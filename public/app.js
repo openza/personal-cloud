@@ -2,6 +2,8 @@ import {createCloudBrake} from "./cloud-brake.js?v=quota-1";
 import {createOwnerApi} from "./owner-api.js?v=session-1";
 import {createOwnerSettings} from "./owner-settings.js?v=session-1";
 import {createWorkspaceControls} from "./workspace-controls.js?v=session-1";
+import {createFanoutDrafts} from './fanout-draft.js?v=fanout-1';
+import {createPendingWebRecovery} from './pending-web-recovery.js?v=fanout-1';
 import {appendTaskRowActions,captureTaskRowInteraction,restoreTaskRowInteraction} from "./task-row-actions.js?v=parity-2";
 const cacheKey="openza-personal-cloud-last-known",deviceKey="openza-personal-cloud-web-device",sequenceKey="openza-personal-cloud-web-sequence",workspaceStateKey="openza-personal-cloud-workspace-state";
 import { readAllTasks } from "./task-pages.js?v=paging-1";
@@ -28,16 +30,19 @@ let narrowProjectsOpen=false,detailReturnFocus=null,pendingDetailsAction=null,pe
 $("#workbench").append(detailsDialog);
 $("#global-search-options").append($("#search-options"));
 let browserIdentityReady=false,deviceId=`web_${crypto.randomUUID()}`;
-const browserStorage={getItem:key=>localStorage.getItem(key),setItem:(key,value)=>{if(!browserIdentityReady&&key!==deviceKey)throw new Error("The browser replica identity could not be saved.");localStorage.setItem(key,value);}};
+const browserStorage={getItem:key=>localStorage.getItem(key),removeItem:key=>localStorage.removeItem(key),setItem:(key,value)=>{if(!browserIdentityReady&&key!==deviceKey)throw new Error("The browser replica identity could not be saved.");localStorage.setItem(key,value);}};
 try{const saved=browserStorage.getItem(deviceKey);if(saved){if(!/^[A-Za-z0-9_.:-]{1,128}$/.test(saved))throw new Error("Invalid browser replica identity.");deviceId=saved;}else browserStorage.setItem(deviceKey,deviceId);browserIdentityReady=true;}catch{}
-const submitMutation=createMutationSender({storage:browserStorage,locks:navigator.locks,sequenceKey,makeId:()=>`mutation_${crypto.randomUUID()}`,now:()=>new Date().toISOString(),getGeneration:()=>ownerSessionGeneration,send:body=>api("/v1/tasks/mutations",{method:"POST",csrf:true,body})});
+const fanoutDrafts=createFanoutDrafts({storage:browserStorage,locks:navigator.locks,origin:location.origin,getContext:()=>({health:featureHealth,payload:currentEditable?currentPayload:null}),getInstance:()=>currentInstanceId??readCache()?.payload?.instanceId,readStatus:()=>api('/sync/catchup-status'),onChange:()=>queueMicrotask(renderFanoutDraft)});
+const durableSubmitMutation=createMutationSender({storage:browserStorage,locks:navigator.locks,sequenceKey,makeId:()=>`mutation_${crypto.randomUUID()}`,now:()=>new Date().toISOString(),getGeneration:()=>ownerSessionGeneration,beforeCreate:intent=>fanoutDrafts.prepare(intent),send:body=>api("/v1/tasks/mutations",{method:"POST",csrf:true,body})});
+const submitMutation=async(...args)=>{const receipt=await durableSubmitMutation(...args);if(['project.delete','task.moveTree'].includes(args[4]))try{await fanoutDrafts.confirmed({entityId:args[2],baseEntityVersion:args[3],operation:args[4],payload:args[5]});}catch{}return receipt;};
 let lastConfirmed=null;
 let deliveryCursor=null,deliveryLoadInFlight=false,deliveryReconcileInFlight=false;
 let initialUploadState=null;
 let cloudResumeTimer,cloudWasPaused=false,networkFailures=0,rotationFailures=0;
 const cloudBrake=createCloudBrake({storage:browserStorage,locks:navigator.locks,origin:location.origin,getInstance:()=>currentInstanceId,onChange:()=>queueMicrotask(()=>applyCloudBrake())});
 window.addEventListener("storage",event=>{if(event.key?.startsWith("openza-cloud-brake-v1:")){cloudBrake.refresh();applyCloudBrake();}});
-const ownerApi=createOwnerApi({brake:cloudBrake,fetch:(...args)=>fetch(...args),locks:navigator.locks,getGeneration:()=>ownerSessionGeneration,getCsrf:()=>csrfToken,setCsrf:token=>csrfToken=token});
+const ownerApi=createOwnerApi({brake:cloudBrake,fetch:(...args)=>fetch(...args),locks:navigator.locks,getGeneration:()=>ownerSessionGeneration,getCsrf:()=>csrfToken,setCsrf:token=>csrfToken=token,getFanoutContext:()=>({health:featureHealth,payload:currentEditable?currentPayload:null}),reserveFanout:(body,credits)=>fanoutDrafts.reserve(body,credits),refreshFanout:async()=>{await loadTasks();if(!currentEditable)throw new Error('Refresh could not confirm the fan-out bound. The pending change is retained.');}});
+const pendingWebRecovery=createPendingWebRecovery({storage:browserStorage,locks:navigator.locks,sequenceKey,getInstance:()=>currentInstanceId??readCache()?.payload?.instanceId,getDevice:()=>deviceId,getGeneration:()=>ownerSessionGeneration,getCapability:()=>featureHealth?.capabilities?.webPendingRecovery,api,preserveCancelled:snapshot=>fanoutDrafts.preserveCancelled(snapshot),onApplied:body=>fanoutDrafts.confirmed(body)});
 const ownerSettings=createOwnerSettings({api,getGeneration:()=>ownerSessionGeneration,isSignedIn:()=>Boolean(csrfToken),renderPairing:renderPairingGrant,renderDevices,pairingError:message=>{pairingResult.textContent=message;pairingResult.hidden=false;},devicesError:message=>deviceList.textContent=message,onUnauthorized:signOut});
 
 const controlIds=["sort-select","sort-direction","group-select","status-filter","priority-filter","label-filter","source-filter","repeat-filter"],viewCopySafe={inbox:1,next:1,today:1,calendar:1,overdue:1,waiting:1,someday:1,all:1,completed:1,search:1};
@@ -47,6 +52,49 @@ let featureHealth=null;
 const workspaceControls=createWorkspaceControls({getState:()=>({payload:currentPayload,selectedSpaceId,generation:ownerSessionGeneration,editable:currentEditable,supported:workspaceSupported()}),sendMutation,refresh:finishMutations});
 const detailAutosave=createDetailAutosave({dirty:()=>detailsDialog.open&&Object.keys(captureDetailDraft()).length>0,busy:()=>detailLabelBusy||detailsDialog.classList.contains("busy")||!currentEditable,save:()=>saveTask({preventDefault(){}},{keepOpen:true}),status:text=>$("#details-save-status").textContent=text});
 function workspaceSupported(){return featureHealth?.capabilities?.workspace?.protocolVersion===1;}
+function renderFanoutDraft(){
+ const panel=$('#fanout-draft');if(!panel)return;
+ try{
+  const draft=fanoutDrafts.draft();panel.hidden=!draft;if(!draft)return;
+  const pending=browserStorage.getItem(`${sequenceKey}:${currentInstanceId??readCache()?.payload?.instanceId}:${deviceId}:pending`);
+  $('#fanout-draft-copy').textContent=pending?'Check the unfinished change before sending more changes. You can still view the latest tasks.':draft.resolution==='cancelled'?'This change was cancelled before it was applied. A copy is saved only in this browser. Make the change in Desktop or remove this copy.':draft.needsDesktop?'This change is too large to send from the website. Make it in Openza Desktop, then remove this saved copy if you no longer need it.':'This change has not been sent. Your desktop may still be syncing, or today’s allowance may be used up. Review and try again after sync finishes and the daily allowance resets.';
+  $('#cancel-fanout-draft').textContent=draft.resolution==='cancelled'?'Remove cancelled copy':'Remove saved change';
+  $('#cancel-fanout-draft').disabled=Boolean(pending);$('#retry-fanout-draft').disabled=!currentEditable||Boolean(draft.needsDesktop);
+ }catch{panel.hidden=false;$('#fanout-draft-copy').textContent='This saved change could not be read safely. Keep your browser data and contact support.';$('#retry-fanout-draft').disabled=true;$('#cancel-fanout-draft').disabled=true;}
+}
+$('#retry-fanout-draft').addEventListener('click',async()=>{
+ const draft=fanoutDrafts.draft();if(!draft||!currentEditable)return;
+ if(!await confirmAction('Review saved change','Try sending this saved change? If its tasks or project have changed, you may need to review it again.','Try again'))return;
+ try{await submitMutation(currentInstanceId,deviceId,draft.entityId,draft.baseEntityVersion,draft.operation,draft.payload);await loadTasks();}catch(error){setNotice('Saved change not sent',error.message);}finally{renderFanoutDraft();}
+});
+$('#cancel-fanout-draft').addEventListener('click',async()=>{
+ if(fanoutDrafts.draft()?.resolution==='cancelled'&&!await confirmAction('Remove cancelled copy','Remove this browser’s saved copy of the cancelled change? This does not change any cloud tasks.','Remove copy'))return;
+ try{const key=`${sequenceKey}:${currentInstanceId??readCache()?.payload?.instanceId}:${deviceId}`;await navigator.locks.request(key+':write',async()=>{if(browserStorage.getItem(key+':pending'))throw Error('An exact pending change is already queued and cannot be cancelled here.');await fanoutDrafts.cancel();});}catch(error){setNotice('Draft not cancelled',error.message);}finally{renderFanoutDraft();}
+});
+function renderPendingWebChange(){
+ const panel=$('#unfinished-web-change');if(!panel)return;
+ try{
+  const instance=currentInstanceId??readCache()?.payload?.instanceId,raw=browserStorage.getItem(`${sequenceKey}:${instance}:${deviceId}:pending`),body=raw?JSON.parse(raw):null;
+  panel.hidden=!body||body.instanceId!==instance||body.deviceId!==deviceId||!['project.delete','task.moveTree'].includes(body.operation);
+  $('#check-unfinished-web-change').disabled=!csrfToken||!browserIdentityReady||!cloudBrake.canRead()||featureHealth?.capabilities?.webPendingRecovery?.protocolVersion!==1;
+ }catch{panel.hidden=false;$('#unfinished-web-copy').textContent='The unfinished browser change could not be verified. Keep browser data for recovery.';$('#check-unfinished-web-change').disabled=true;}
+}
+$('#check-unfinished-web-change').addEventListener('click',async()=>{
+ const generation=ownerSessionGeneration,button=$('#check-unfinished-web-change'),copy=$('#unfinished-web-copy');button.disabled=true;
+ try{
+  const ticket=await pendingWebRecovery.check();let result=ticket.result;
+  if(generation!==ownerSessionGeneration)return;
+  if(result.state==='unapplied'){
+   if(!await confirmAction('Cancel unfinished change','The cloud has not applied this change. Cancel it and keep a saved copy in this browser? If it has already been applied, we’ll confirm it instead. Nothing will be undone.','Cancel change and keep a copy')){copy.textContent='The unfinished change is still pending. Nothing was cancelled.';return;}
+   result=await pendingWebRecovery.cancel(ticket);
+  }
+  if(generation!==ownerSessionGeneration)return;
+  if(result.state==='applied'){await loadTasks();if(generation!==ownerSessionGeneration)return;setNotice('Unfinished change confirmed','The cloud had already applied it. Nothing was undone.');}
+  else if(result.state==='cancelled'){await loadTasks();if(generation!==ownerSessionGeneration)return;setNotice('Unfinished change cancelled','A copy is saved in this browser. You can send more changes now.');}
+  else copy.textContent='The cloud could not confirm what happened. This unfinished change is kept, and further changes must wait.';
+ }catch(error){copy.textContent=error.message||'The result could not be confirmed. The exact pending change is retained.';}
+ finally{renderFanoutDraft();renderPendingWebChange();}
+});
 restoreWorkspaceState();restoreProjectPreferences();const requestedView=consumeViewRequest();let pendingSearchRequest=requestedView==="search",pendingNewTaskRequest=sessionStorage.getItem("openza-requested-action")==="new-task";sessionStorage.removeItem("openza-requested-action");if(currentView==="search")currentView="inbox";if(viewCopySafe[requestedView]&&requestedView!=="search"){currentView=requestedView;selectedProjectId=null;applyContextPreferences();}configureRoute();consumeSetupFragment();bindEvents();
 function consumeViewRequest(){const url=new URL(location.href),view=url.searchParams.get("view");if(url.searchParams.has("view")){url.searchParams.delete("view");history.replaceState(history.state,"",`${url.pathname}${url.search}${url.hash}`);}return view;}
 function openCreatedTask(id,sessionGeneration=ownerSessionGeneration){if(sessionGeneration!==ownerSessionGeneration||!csrfToken)return;const task=currentPayload.tasks.find(item=>item.id===id);if(!task){pendingCreatedTaskId=id;setNotice("Task created", "Waiting for the latest workspace to open it.");return;}pendingCreatedTaskId=null;selectedSpaceId=task.spaceId;selectedProjectId=task.projectId||null;currentView=selectedProjectId?"all":(["inbox","next","waiting","someday"].includes(task.workflowStatus)?task.workflowStatus:"all");collapsedGroups.clear();applyContextPreferences();persistWorkspaceState();renderSidebar();renderTaskList();openDetails(id);}
@@ -102,7 +150,7 @@ function configureRoute(){
 function consumeSetupFragment(){const parameters=new URLSearchParams(location.hash.slice(1)),grant=parameters.get("setup");if(!grant||grant.length<20)return;$("#setup-grant").value=grant;history.replaceState(null,"",`${location.pathname}${location.search}`);}
 
 async function start(){
-  if(cloudBrake.status()){applyCloudBrake();return;}
+  if(cloudBrake.status()&&!cloudBrake.canRead()){applyCloudBrake();return;}
   $("#auth-heading").textContent="Unlock your Personal Cloud";
   if(cloudBrake.isLocallySignedOut()){authPanel.hidden=false;signinActions.hidden=false;authCopy.textContent="Signed out locally. Use an owner passkey to return.";return;}
   if(!window.PublicKeyCredential||!navigator.credentials)return showAuthError("This browser does not support passkeys. Use a current browser on HTTPS.");
@@ -114,7 +162,7 @@ async function setupOwner(event){event.preventDefault();const grant=$("#setup-gr
 async function signIn(){await runAuth(async()=>{const options=await api("/auth/signin/begin",{method:"POST",body:{}});const credential=await navigator.credentials.get({publicKey:assertionOptions(options)});const result=await api("/auth/signin/finish",{method:"POST",body:{challenge:options.challenge,credential:assertionCredential(credential)}});csrfToken=result.csrfToken;showSignedIn();});}
 async function recoverOwner(event){event.preventDefault();const recoveryCode=$("#recovery-code").value,displayName=$("#recovery-name").value.trim();await runAuth(async()=>{const options=await api("/auth/recovery/begin",{method:"POST",body:{recoveryCode,displayName}});const credential=await navigator.credentials.create({publicKey:registrationOptions(options)});const result=await api("/auth/recovery/finish",{method:"POST",body:{recoveryCode,displayName,challenge:options.challenge,credential:registrationCredential(credential)}});showOneTimeSecret("Recovery completed. Save the replacement recovery code, then sign in with the new passkey.",result.recoveryCode);recoveryForm.reset();recoveryForm.hidden=true;});}
 async function runAuth(action){authCopy.textContent="Waiting for secure passkey confirmation…";try{await action();}catch(error){showAuthError(error.name==="NotAllowedError"?"Passkey confirmation was cancelled or timed out.":error.message);}}
-function showSignedIn(hideRecoveryResult=true){void cloudBrake.rememberSignIn().catch(()=>applyCloudBrake());if(cloudBrake.status()){applyCloudBrake();return;}authPanel.hidden=true;if(hideRecoveryResult)recoveryResult.hidden=true;scheduleSessionRotation();$("#site-header").hidden=true;$("#landing").hidden=true;$("#site-footer").hidden=true;tasksPanel.hidden=false;document.body.classList.add("signed-in");if(settingsRoute){document.body.classList.add("settings-route");$(".sidebar-settings").setAttribute("aria-current","page");$("#task-content").hidden=true;$("#workspace-title").textContent="Settings";$("#workspace-subtitle").textContent="Appearance, workspace and connected desktops";$("#workspace-eyebrow").hidden=true;$("#landing").hidden=false;$("#workspace-main").append($("#landing"));$("#appearance-panel").hidden=false;devicesPanel.hidden=false;loadDevices();loadDeliveries();}else initialStatusMonitor.start();void initializeWorkspace();}
+function showSignedIn(hideRecoveryResult=true){void cloudBrake.rememberSignIn().catch(()=>applyCloudBrake());if(cloudBrake.status()&&!cloudBrake.canRead()){applyCloudBrake();return;}authPanel.hidden=true;if(hideRecoveryResult)recoveryResult.hidden=true;scheduleSessionRotation();$("#site-header").hidden=true;$("#landing").hidden=true;$("#site-footer").hidden=true;tasksPanel.hidden=false;document.body.classList.add("signed-in");if(settingsRoute){document.body.classList.add("settings-route");$(".sidebar-settings").setAttribute("aria-current","page");$("#task-content").hidden=true;$("#workspace-title").textContent="Settings";$("#workspace-subtitle").textContent="Appearance, workspace and connected desktops";$("#workspace-eyebrow").hidden=true;$("#landing").hidden=false;$("#workspace-main").append($("#landing"));$("#appearance-panel").hidden=false;devicesPanel.hidden=false;loadDevices();loadDeliveries();}else initialStatusMonitor.start();void initializeWorkspace();}
 function showAuthError(message){if(cloudBrake.status()){applyCloudBrake();return;}authCopy.textContent=message||"Owner access could not be verified.";}
 function showOneTimeSecret(message,value){recoveryResult.replaceChildren();const title=document.createElement("strong"),code=document.createElement("code");title.textContent=message;code.textContent=value;recoveryResult.append(title,code);recoveryResult.hidden=false;}
 async function signOut(){const remotePaused=cloudBrake.status();ownerSessionGeneration++;currentEditable=false;detailEditorGeneration++;detailPendingSave=null;detailLabelBusy=false;detailAutosave.reset();deliveryCursor=null;pendingCreatedTaskId=null;workspaceControls.stop();featureHealth=null;initialStatusMonitor.stop();taskDialog.close();setDialogBusy(taskDialog,false);detailsDialog.close();setDialogBusy(detailsDialog,false);$("#initial-sync-status").hidden=true;try{await cloudBrake.rememberSignOut?.();await api("/auth/signout",{method:"POST",csrf:true,body:{}});}catch{}clearTaskTimers();clearTimeout(sessionTimer);csrfToken=null;tasksPanel.hidden=true;devicesPanel.hidden=true;$("#appearance-panel").hidden=true;document.body.classList.remove("signed-in","settings-route","details-open");$("#site-header").after($("#landing"));$("#site-header").hidden=false;$("#landing").hidden=false;$("#site-footer").hidden=false;authPanel.hidden=false;setupForm.hidden=true;recoveryForm.hidden=true;signinActions.hidden=false;authCopy.textContent=remotePaused||cloudBrake.status()?"Signed out locally. Cloud requests are paused; remote session revocation was not confirmed.":"Signed out. Use an owner passkey to return.";}
@@ -134,7 +182,17 @@ async function loadTasks(options={}){
 }
 async function loadTaskSnapshot(options={}){
   const generation=ownerSessionGeneration;const background=options.background===true;if(!background){setStatus("loading","Connecting");taskList.setAttribute("aria-busy","true");}
-  try{const [health,payload]=await Promise.all([api("/health"),readAllTasks(api)]);if(generation!==ownerSessionGeneration||!csrfToken)return false;if(cloudBrake.status()){applyCloudBrake();return false;}networkFailures=0;featureHealth=health;currentInstanceId=payload.instanceId;const savedAt=new Date().toISOString();lastConfirmed={savedAt,payload};try{localStorage.setItem(cacheKey,JSON.stringify(lastConfirmed));}catch{}renderWorkspace(payload,"current",savedAt);scheduleTaskTimers(payload,savedAt,options);return true;}
+  try{
+   const [health,payload]=await Promise.all([api("/health"),readAllTasks(api)]);
+   if(generation!==ownerSessionGeneration||!csrfToken)return false;
+   if(!(cloudBrake.canRead?.()??!cloudBrake.status())){applyCloudBrake();return false;}
+   networkFailures=0;featureHealth=health;currentInstanceId=payload.instanceId;
+   const savedAt=new Date().toISOString();lastConfirmed={savedAt,payload};
+   try{localStorage.setItem(cacheKey,JSON.stringify(lastConfirmed));}catch{}
+   renderWorkspace(payload,"current",savedAt);scheduleTaskTimers(payload,savedAt,options);renderFanoutDraft();renderPendingWebChange();
+   if(cloudBrake.status())applyCloudBrake();
+   return true;
+  }
   catch(error){if(generation!==ownerSessionGeneration)return false;clearTaskTimers();if(cloudBrake.status()){applyCloudBrake();return false;}if(error.status===401){await signOut();return false;}const cached=lastConfirmed||readCache();if(cached){renderWorkspace(cached.payload,"stale",cached.savedAt);setStatus("loading","Reconnecting");setNotice("Reconnecting to Personal Cloud","Showing your last confirmed tasks read only while Openza retries automatically.");}else renderUnavailable();if(document.visibilityState!=="hidden")refreshTimer=setTimeout(()=>{if(document.visibilityState!=="hidden")loadTasks({background:true});},Math.min(300000,retryRefreshMs*2**Math.min(5,networkFailures++))+Math.floor(Math.random()*500));return false;}
   finally{taskList.setAttribute("aria-busy","false");}
 }
@@ -220,7 +278,12 @@ async function deleteSelectedTask(){const generation=ownerSessionGeneration;cons
 async function addSelectedLabel(){const task=currentPayload.tasks.find(item=>item.id===selectedTaskId),label=currentPayload.labels.find(item=>item.id===$("#details-add-label").value);if(!task||!label||task.labels.some(item=>item.id===label.id))return;await updateSelectedLabel("task.addLabel",{label:{id:label.id,name:label.name}});}
 async function removeSelectedLabel(labelId){await updateSelectedLabel("task.removeLabel",{labelId});}
 
-async function sendMutation(entityId,baseEntityVersion,operation,payload){const generation=ownerSessionGeneration;setStatus("loading","Saving");try{return await submitMutation(currentInstanceId,deviceId,entityId,baseEntityVersion,operation,payload);}catch(error){if(generation!==ownerSessionGeneration)throw error;if(cloudBrake.status()){applyCloudBrake();throw error;}if(error.code==="pending_reconciled")await loadTasks();else{setStatus("unavailable","Save not confirmed");setNotice("Change not confirmed",error.code==="version_conflict"?taskSaveError(error):error.message||"Retry this change to confirm whether it saved.");}throw error;}}
+async function sendMutation(entityId,baseEntityVersion,operation,payload){
+ const generation=ownerSessionGeneration;setStatus("loading","Saving");
+ try{return await submitMutation(currentInstanceId,deviceId,entityId,baseEntityVersion,operation,payload);}
+ catch(error){if(generation!==ownerSessionGeneration)throw error;if(cloudBrake.status()){applyCloudBrake();throw error;}if(error.code==="pending_reconciled")await loadTasks();else{setStatus("unavailable","Save not confirmed");setNotice("Change not confirmed",error.code==="version_conflict"?taskSaveError(error):error.message||"Retry this change to confirm whether it saved.");}throw error;}
+ finally{if(typeof renderPendingWebChange==='function')renderPendingWebChange();}
+}
 async function finishMutations(){const generation=ownerSessionGeneration;await rotateSession();if(generation!==ownerSessionGeneration)return false;return await loadTasks({afterMutation:true});}
 function setDialogBusy(dialog,busy){dialog.querySelectorAll("input,textarea,select,button").forEach(control=>control.disabled=busy||((!currentEditable||dialog===detailsDialog&&(detailTaskUnavailable||Boolean(detailPendingSave)))&&!control.hasAttribute("data-close-dialog")&&!control.hasAttribute("data-readonly-navigation")));dialog.classList.toggle("busy",busy);if(dialog===detailsDialog)lockWorkspaceDetailFields(busy);}
 function lockWorkspaceDetailFields(busy=false){const supported=workspaceSupported();for(const id of ["details-title","details-notes","details-space","details-project","details-status","details-priority","details-planned","details-deadline","details-save"])$("#"+id).disabled=!supported||!currentEditable||detailTaskUnavailable||Boolean(detailPendingSave)||busy||detailLabelBusy;$("#details-upgrade-message").hidden=supported||!currentEditable;}
@@ -296,6 +359,12 @@ function applyCloudBrake(){
  $("#auth-heading").textContent=title;
  const detail=`${oversized?"This pending operation exceeds a whole daily reservation. Automatic retries are stopped; retain the pending change for support.":`Cloud requests paused until ${when}.`}${pause.cloudResetAt?` Cloud reset: ${pause.cloudResetAt}.`:""} Cached tasks remain read only. Pending changes are retained. ${pendingCopy} Remaining dispatch reservations: ${pause.remaining.requests} requests, ${pause.remaining.envelopes} envelopes, ${pause.remaining.writeCredits} write credits. ${pause.durable?"":"Protection could not be saved; restart protection is unavailable."}`;
  setStatus("unavailable",title);setNotice(title,detail);authCopy.textContent=detail;
+ if(typeof renderFanoutDraft==='function')renderFanoutDraft();
+ if(typeof renderPendingWebChange==='function')renderPendingWebChange();
+ if(cloudBrake.canRead?.()&&csrfToken&&!cloudBrake.isLocallySignedOut()){
+  if(document.visibilityState!=='hidden')refreshTimer=setTimeout(()=>loadTasks({background:true}),proactiveRefreshMs);
+  clearTimeout(sessionTimer);sessionTimer=setTimeout(renewActiveSession,sessionRotationMs);
+ }
  if(oversized)return;
  const delay=Math.min(2147480000,cloudBrake.remainingDelay()+500+Math.floor(Math.random()*500));
  cloudResumeTimer=setTimeout(resumeCloud,delay);
