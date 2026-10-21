@@ -92,6 +92,15 @@ test('keyboard inset follows the visual viewport and never goes negative', () =>
   assert.equal(keyboardInset({innerHeight: 844, viewportHeight: 900, viewportOffsetTop: 0}), 0);
 });
 
+test('the install button uses the deferred install event and app.js never calls a prompt dialog', async () => {
+  const {offerInstall} = await import('../public/phone-shell.js');
+  let shown = 0;
+  assert.equal(await offerInstall({prompt: async () => { shown++; }, userChoice: Promise.resolve({outcome: 'accepted'})}), 'accepted');
+  assert.equal(shown, 1);
+  assert.equal(await offerInstall({prompt: async () => { throw new Error('already used'); }}), null);
+  assert.doesNotMatch(appSource, /prompt\(/, 'matches the worker test guard against window.prompt');
+});
+
 test('installable app metadata and phone markup are present', () => {
   const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
   const manifest = JSON.parse(readFileSync(new URL('../public/manifest.json', import.meta.url), 'utf8'));

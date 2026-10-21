@@ -27,6 +27,13 @@ export function quickAddContext({view, project, viewTitle}) {
   return status ? `Adds to ${viewTitle}` : 'Adds to Inbox';
 }
 
+// Android Chrome's deferred beforeinstallprompt event; this is the browser's
+// install sheet, not a window.prompt() text dialog.
+export async function offerInstall(deferredEvent) {
+  try { await deferredEvent.prompt(); return (await deferredEvent.userChoice)?.outcome ?? null; }
+  catch { return null; }
+}
+
 export function installCardState({standalone, dismissed, ios, promptReady}) {
   if (standalone || dismissed) return {show: false, mode: null};
   if (promptReady) return {show: true, mode: 'prompt'};
