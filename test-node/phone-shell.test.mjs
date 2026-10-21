@@ -178,6 +178,8 @@ test('Back answers an open Save/Discard or confirmation prompt instead of saving
 test('sign-out closes quick add and a Settings tab tap always navigates', () => {
   assert.match(appSource.match(/^async function signOut\(.*$/m)[0], /resetQuickAdd\(\)/);
   assert.match(appSource.match(/^function selectPhoneTab\(.*$/m)[0], /if\(!settingsRoute&&tab===currentView/);
+  // On Settings the view change is a page navigation; closing More first would queue a competing history.back().
+  assert.match(appSource.match(/^function selectView\(.*$/m)[0], /^function selectView\(view\)\{if\(!settingsRoute\)tasksPanel\.classList\.remove/);
 });
 
 test('an earlier quick-add response never clears a reopened sheet', async () => {
