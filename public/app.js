@@ -52,7 +52,7 @@ let detailEditorGeneration=0,detailPendingSave=null;
 let featureHealth=null;
 const workspaceControls=createWorkspaceControls({getState:()=>({payload:currentPayload,selectedSpaceId,generation:ownerSessionGeneration,editable:currentEditable,supported:workspaceSupported()}),sendMutation,refresh:finishMutations});
 const detailAutosave=createDetailAutosave({dirty:()=>detailsDialog.open&&Object.keys(captureDetailDraft()).length>0,busy:()=>detailLabelBusy||detailsDialog.classList.contains("busy")||!currentEditable,save:()=>saveTask({preventDefault(){}},{keepOpen:true}),status:text=>$("#details-save-status").textContent=text});
-const phoneMedia=matchMedia(PHONE_QUERY),isPhone=()=>phoneMedia.matches,installDismissKey="openza-personal-cloud-install-dismissed",backStack=createBackStack({history});let installPrompt=null;
+const phoneMedia=matchMedia(PHONE_QUERY),isPhone=()=>phoneMedia.matches,installDismissKey="openza-personal-cloud-install-dismissed",backStack=createBackStack({history});let installPrompt=null,quickAddGeneration=0,pendingProjectsRequest=false;
 function workspaceSupported(){return featureHealth?.capabilities?.workspace?.protocolVersion===1;}
 function renderFanoutDraft(){
  const panel=$('#fanout-draft');if(!panel)return;
@@ -394,6 +394,7 @@ function bindPhoneEvents(){
   window.addEventListener("beforeinstallprompt",event=>{event.preventDefault();installPrompt=event;renderInstallCard();});
   window.addEventListener("appinstalled",()=>{installPrompt=null;renderInstallCard();});
   phoneMedia.addEventListener("change",()=>{if(!isPhone())tasksPanel.classList.remove("mobile-navigation-open","phone-options-open");updateWorkbenchLayout();renderPhoneChrome();});
+  try{pendingProjectsRequest=!settingsRoute&&sessionStorage.getItem("openza-requested-projects")==="1";sessionStorage.removeItem("openza-requested-projects");}catch{}
   // Chrome renders with the sidebar; view constants are not ready during bindEvents.
   watchPhoneLayers();trackKeyboard();
 }
@@ -403,31 +404,33 @@ function renderPhoneChrome(){
   $("#phone-add").disabled=!currentEditable||!workspaceSupported()||!currentPayload.spaces.length;
   const project=(currentPayload.allProjects||currentPayload.projects).find(item=>item.id===selectedProjectId);$("#details-back-label").textContent=project?.name||(viewCopy[currentView]||viewCopy.all)[0];
   renderInstallCard();
+  if(pendingProjectsRequest&&currentPayload.spaces.length){pendingProjectsRequest=false;if(isPhone()&&currentView==="all"&&!selectedProjectId){narrowProjectsOpen=true;updateWorkbenchLayout();}}
 }
 function selectPhoneTab(tab){if(tab==="more"){toggleMorePanel();return;}if(detailsDialog.open){closeDetailsFromUser(()=>selectPhoneTab(tab));return;}if(!settingsRoute&&tab===currentView&&!selectedProjectId&&!tasksPanel.classList.contains("mobile-navigation-open")){$("#task-list").scrollTo({top:0,behavior:"smooth"});return;}selectView(tab);renderPhoneChrome();}
 function toggleMorePanel(open=!tasksPanel.classList.contains("mobile-navigation-open")){if(open&&detailsDialog.open)return;tasksPanel.classList.toggle("mobile-navigation-open",open);updateWorkbenchLayout();renderPhoneChrome();}
-function openPhoneProjects(){if(settingsRoute){location.assign("/?view=all");return;}selectView("all");narrowProjectsOpen=true;updateWorkbenchLayout();renderPhoneChrome();}
+function openPhoneProjects(){if(settingsRoute){try{sessionStorage.setItem("openza-requested-projects","1");}catch{}location.assign("/?view=all");return;}selectView("all");narrowProjectsOpen=true;updateWorkbenchLayout();renderPhoneChrome();}
 function togglePhoneViewOptions(){const open=!tasksPanel.classList.contains("phone-options-open");tasksPanel.classList.toggle("phone-options-open",open);$("#phone-view-options").setAttribute("aria-expanded",String(open));}
 function openTaskCapture(){if(isPhone())openQuickAdd();else openAddTask();}
 function quickAddProject(){return currentPayload.projects.find(item=>item.id===selectedProjectId)||null;}
 function setQuickAddBusy(busy){for(const id of ["quick-add-title","quick-add-submit","quick-add-more"])$("#"+id).disabled=busy||!currentEditable;}
-function openQuickAdd(){const dialog=$("#quick-add-dialog");if(!currentEditable||!workspaceSupported()||!currentPayload.spaces.length||dialog.open)return;$("#quick-add-context").textContent=quickAddContext({view:currentView,project:quickAddProject(),viewTitle:(viewCopy[currentView]||viewCopy.all)[0]});$("#quick-add-status").textContent="";$("#quick-add-title").value="";setQuickAddBusy(false);dialog.showModal();$("#quick-add-title").focus();}
+function openQuickAdd(){const dialog=$("#quick-add-dialog");if(!currentEditable||!workspaceSupported()||!currentPayload.spaces.length||dialog.open)return;quickAddGeneration++;$("#quick-add-context").textContent=quickAddContext({view:currentView,project:quickAddProject(),viewTitle:(viewCopy[currentView]||viewCopy.all)[0]});$("#quick-add-status").textContent="";$("#quick-add-title").value="";setQuickAddBusy(false);dialog.showModal();$("#quick-add-title").focus();}
 async function createQuickTask(event){
   event.preventDefault();if(!currentEditable||!workspaceSupported())return;
   const input=$("#quick-add-title"),status=$("#quick-add-status"),title=input.value.trim(),validation=taskTextError(title,"");
   if(validation){status.textContent=validation;input.focus();return;}
-  const sessionGeneration=ownerSessionGeneration,defaults=quickAddDefaults({view:currentView,project:quickAddProject(),spaceId:creationSpace(currentPayload.spaces,selectedSpaceId),today:localDate(new Date())});
+  // A reopened sheet starts a new generation; an older request must not touch it.
+  const sessionGeneration=ownerSessionGeneration,sheetGeneration=quickAddGeneration,current=()=>sessionGeneration===ownerSessionGeneration&&sheetGeneration===quickAddGeneration,defaults=quickAddDefaults({view:currentView,project:quickAddProject(),spaceId:creationSpace(currentPayload.spaces,selectedSpaceId),today:localDate(new Date())});
   setQuickAddBusy(true);status.textContent="Adding…";let accepted=false;
   try{
     const id=`task_${crypto.randomUUID().replaceAll("-","")}`;
     await sendMutation(id,null,"task.createRich",{task:{id,spaceId:defaults.spaceId,title,workflowStatus:defaults.workflowStatus,priority:defaults.priority,createdAt:new Date().toISOString(),notes:null,plannedOn:defaults.plannedOn,plannedAt:null,deadlineOn:null,deadlineAt:null,scheduledStart:null,scheduledEnd:null,durationMinutes:null,recurrenceRule:null,projectId:defaults.projectId,labels:[]}});
     if(sessionGeneration!==ownerSessionGeneration)return;
-    accepted=true;input.value="";status.textContent=`Added “${title}”`;setQuickAddBusy(false);if($("#quick-add-dialog").open)input.focus();
+    accepted=true;if(current()){input.value="";status.textContent=`Added “${title}”`;setQuickAddBusy(false);if($("#quick-add-dialog").open)input.focus();}
     await finishMutations();
-  }catch(error){if(sessionGeneration!==ownerSessionGeneration)return;if(accepted){status.textContent=`Added “${title}”. The list will refresh shortly.`;void loadTasks({afterMutation:true});}else status.textContent=error.message;}
-  finally{if(sessionGeneration===ownerSessionGeneration&&!accepted){setQuickAddBusy(false);if($("#quick-add-dialog").open)input.focus();}}
+  }catch(error){if(sessionGeneration!==ownerSessionGeneration)return;if(accepted){if(current())status.textContent=`Added “${title}”. The list will refresh shortly.`;void loadTasks({afterMutation:true});}else if(current())status.textContent=error.message;}
+  finally{if(current()&&!accepted){setQuickAddBusy(false);if($("#quick-add-dialog").open)input.focus();}}
 }
-function resetQuickAdd(){const dialog=$("#quick-add-dialog");if(dialog.open)dialog.close();setQuickAddBusy(false);$("#quick-add-status").textContent="";$("#quick-add-title").value="";}
+function resetQuickAdd(){quickAddGeneration++;const dialog=$("#quick-add-dialog");if(dialog.open)dialog.close();setQuickAddBusy(false);$("#quick-add-status").textContent="";$("#quick-add-title").value="";}
 function quickAddMoreFields(){const title=$("#quick-add-title").value;$("#quick-add-dialog").close();openAddTask();if(taskDialog.open)$("#new-title").value=title;}
 function detailsPromptOpen(){return $("#unsaved-dialog").open||$("#confirmation-dialog").open;}
 function backFromDetails(){if($("#unsaved-dialog").open){$("#keep-editing").click();return;}if($("#confirmation-dialog").open){$("#confirmation-dialog").close("cancel");return;}closeDetailsFromUser();}

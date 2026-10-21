@@ -455,7 +455,7 @@ label:has(> input[type="checkbox"]), .check-label { display: flex; align-items: 
   #global-search-dialog { width: 100%; max-width: 100%; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; }
   .global-search-content { height: 100%; padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); }
   #global-search-results .subtask-link { min-height: 52px; border-bottom: 1px solid var(--border); border-radius: 0; font-size: 16px; }
-  .global-search-content .icon-button { width: 44px; height: 44px; }
+  .icon-button { width: 44px; height: 44px; }
 
   /* Quick add is a bottom sheet that follows the on-screen keyboard. */
   .sheet-dialog { width: 100%; max-width: 100%; max-height: calc(100dvh - var(--keyboard-inset, 0px)); margin: auto 0 var(--keyboard-inset, 0px); padding-bottom: env(safe-area-inset-bottom); border-width: 1px 0 0; border-radius: 12px 12px 0 0; }

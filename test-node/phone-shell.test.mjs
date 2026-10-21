@@ -179,3 +179,25 @@ test('sign-out closes quick add and a Settings tab tap always navigates', () => 
   assert.match(appSource.match(/^async function signOut\(.*$/m)[0], /resetQuickAdd\(\)/);
   assert.match(appSource.match(/^function selectPhoneTab\(.*$/m)[0], /if\(!settingsRoute&&tab===currentView/);
 });
+
+test('an earlier quick-add response never clears a reopened sheet', async () => {
+  const fields = {'#quick-add-title': {value: 'First', focus() {}}, '#quick-add-status': {textContent: ''}, '#quick-add-dialog': {open: true}};
+  let release;
+  const context = vm.createContext({
+    $: id => fields[id], ownerSessionGeneration: 1, quickAddGeneration: 1, currentEditable: true, workspaceSupported: () => true,
+    taskTextError: () => null, quickAddDefaults: () => ({spaceId: 's', projectId: null, workflowStatus: 'inbox', priority: 3, plannedOn: null}),
+    quickAddProject: () => null, creationSpace: () => 's', localDate: () => '2026-10-21', currentView: 'inbox', currentPayload: {spaces: [{id: 's'}]},
+    selectedSpaceId: 's', crypto: {randomUUID: () => '0000'}, setQuickAddBusy() {}, finishMutations: async () => true, loadTasks: async () => true,
+    sendMutation: () => new Promise(resolve => { release = resolve; }),
+  });
+  vm.runInContext(appSource.match(/^async function createQuickTask\([^]*?^}/m)[0], context);
+  const pending = context.createQuickTask({preventDefault() {}});
+  // The sheet is dismissed and reopened, and the owner starts a new title.
+  vm.runInContext('quickAddGeneration++', context);
+  fields['#quick-add-status'].textContent = '';
+  fields['#quick-add-title'].value = 'Second draft';
+  release({entityVersion: 1});
+  await pending;
+  assert.equal(fields['#quick-add-title'].value, 'Second draft');
+  assert.equal(fields['#quick-add-status'].textContent, '');
+});
