@@ -12,6 +12,7 @@ import { providerDeliveryLabel } from "./provider-status.js?v=bridge-1";
 import { ALL_SPACES, resolveSpace, creationSpace, queryTasks, matchesView, taskComparator,projectComparator, visibleProjects, groupTasks, localDate, plannedEdit, searchWorkspace } from "./workspace-query.js?v=parity-1";
 import { createInitialStatusMonitor, initialEmptyState } from "./initial-sync-status.js?v=initial-1";
 import { workbenchLayout } from "./workbench-layout.js?v=desktop-parity-2";
+import { PHONE_QUERY, phoneTabFor, quickAddDefaults, quickAddContext, installCardState, createBackStack, bindLongPress, keyboardInset } from "./phone-shell.js?v=mobile-1";
 import { taskSortCopy, taskCopyText, taskTextError, uniqueLabelNames, taskRowPresentation, taskSaveError } from "./task-presentation.js?v=parity-3";
 import { createDetailAutosave } from "./detail-autosave.js?v=parity-3";
 const initialStatusMonitor=createInitialStatusMonitor({read:signal=>api("/sync/initial-status",{signal}),render:renderInitialStatus});
@@ -51,6 +52,7 @@ let detailEditorGeneration=0,detailPendingSave=null;
 let featureHealth=null;
 const workspaceControls=createWorkspaceControls({getState:()=>({payload:currentPayload,selectedSpaceId,generation:ownerSessionGeneration,editable:currentEditable,supported:workspaceSupported()}),sendMutation,refresh:finishMutations});
 const detailAutosave=createDetailAutosave({dirty:()=>detailsDialog.open&&Object.keys(captureDetailDraft()).length>0,busy:()=>detailLabelBusy||detailsDialog.classList.contains("busy")||!currentEditable,save:()=>saveTask({preventDefault(){}},{keepOpen:true}),status:text=>$("#details-save-status").textContent=text});
+const phoneMedia=matchMedia(PHONE_QUERY),isPhone=()=>phoneMedia.matches,installDismissKey="openza-personal-cloud-install-dismissed",backStack=createBackStack({history});let installPrompt=null;
 function workspaceSupported(){return featureHealth?.capabilities?.workspace?.protocolVersion===1;}
 function renderFanoutDraft(){
  const panel=$('#fanout-draft');if(!panel)return;
@@ -138,9 +140,10 @@ function bindEvents(){
   ["#status-filter","#priority-filter","#label-filter","#source-filter","#repeat-filter"].forEach(id=>$(id).addEventListener("change",()=>{persistWorkspaceState();renderTaskList();}));
   $("#add-new-label").addEventListener("click",addNamedLabel);
   $("#clear-filters").addEventListener("click",clearFilters);$("#filter-panel").addEventListener("toggle",event=>$("#toggle-filters").setAttribute("aria-expanded",String(event.newState==="open")));
-  document.querySelectorAll("[data-close-dialog]").forEach(button=>button.addEventListener("click",()=>button.closest("dialog")===detailsDialog?requestDetailsClose():button.closest("dialog").close()));
+  document.querySelectorAll("[data-close-dialog]").forEach(button=>button.addEventListener("click",()=>button.closest("dialog")===detailsDialog?closeDetailsFromUser():button.closest("dialog").close()));
   $("#global-search-input").addEventListener("input",renderGlobalSearch);
   $(".sidebar-settings").addEventListener("click",event=>{if(detailsDialog.open){event.preventDefault();requestDetailsClose(()=>location.assign("/settings"));}});
+  bindPhoneEvents();
 }
 
 function configureRoute(){
@@ -217,8 +220,9 @@ function renderSidebar(){
   document.querySelectorAll("#view-nav button[data-view]").forEach(button=>{const active=!settingsRoute&&!selectedProjectId&&button.dataset.view===currentView;button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active));});
   const spaces=$("#space-list");spaces.replaceChildren();for(const space of [{id:ALL_SPACES,name:"All Spaces"},...currentPayload.spaces]){const button=document.createElement("button");button.type="button";button.className="space-button";button.classList.toggle("active",space.id===selectedSpaceId);button.setAttribute("aria-pressed",String(space.id===selectedSpaceId));button.setAttribute("aria-label",space.name);const name=document.createElement("span"),count=document.createElement("small");name.textContent=space.name;count.textContent=String(currentPayload.tasks.filter(task=>(space.id===ALL_SPACES||task.spaceId===space.id)&&!task.parentId&&task.completionState==="open").length);button.append(name,count);button.addEventListener("click",()=>selectSpace(space.id));spaces.append(button);}
   const projects=$("#project-list");projects.replaceChildren();for(const project of visibleProjects(currentPayload,selectedSpaceId,$("#project-status").value,$("#project-search").value).sort(projectComparator($("#project-sort").value,$("#project-direction").value,$("#project-favorites").checked,new Map((currentPayload.allProjects||currentPayload.projects).map(p=>[p.id,top.filter(t=>t.projectId===p.id&&t.completionState==="open").length]))))){const button=document.createElement("button");button.type="button";button.className="space-button";button.classList.toggle("active",project.id===selectedProjectId);button.setAttribute("aria-pressed",String(project.id===selectedProjectId));button.setAttribute("aria-label",project.name);const name=document.createElement("span"),count=document.createElement("small");name.textContent=project.name+(selectedSpaceId===ALL_SPACES?` · ${currentPayload.spaces.find(space=>space.id===project.spaceId)?.name||"Space"}`:"");count.textContent=String(top.filter(task=>task.projectId===project.id&&task.completionState==="open").length);button.append(name,count);button.addEventListener("click",()=>selectProject(project.id));appendProjectRow(project,button,projects);}
+  if(typeof renderPhoneChrome==="function")renderPhoneChrome();
 }
-function selectView(view){if(view==="search"){openGlobalSearch();return;}if(detailsDialog.open){requestDetailsClose(()=>selectView(view));return;}if(settingsRoute){location.assign(`/?view=${encodeURIComponent(view)}`);return;}selectedProjectId=null;currentView=view;collapsedGroups.clear();if(view==="search")$("#task-search").focus();applyContextPreferences();persistWorkspaceState();renderSidebar();renderTaskList();}
+function selectView(view){tasksPanel.classList.remove("mobile-navigation-open");if(view==="search"){openGlobalSearch();return;}if(isPhone())narrowProjectsOpen=false;if(view==="search"){openGlobalSearch();return;}if(detailsDialog.open){requestDetailsClose(()=>selectView(view));return;}if(settingsRoute){location.assign(`/?view=${encodeURIComponent(view)}`);return;}selectedProjectId=null;currentView=view;collapsedGroups.clear();if(view==="search")$("#task-search").focus();applyContextPreferences();persistWorkspaceState();renderSidebar();renderTaskList();}
 const viewCopy={inbox:["Inbox","Capture first. Organize when it helps."],next:["Next Actions","Tasks ready for attention."],today:["Today","Planned or due today."],calendar:["Calendar","Tasks with a date."],overdue:["Overdue","Open tasks whose date has passed."],waiting:["Waiting For","Tasks currently waiting."],someday:["Someday","Ideas and tasks for later."],all:["Tasks","Every open task in the selected scope."],completed:["Completed","Finished tasks in the selected scope."]};
 function renderTaskList(){const interaction=captureTaskRowInteraction(taskList);renderTaskListContent();restoreTaskRowInteraction(taskList,interaction);}
 function renderTaskListContent(){
@@ -231,14 +235,14 @@ function renderTaskListContent(){
   const filterCount=[options.status,options.priority,options.label,options.source,options.repeat].filter(Boolean).length;$("#toggle-filters").textContent=filterCount?`Filters (${filterCount})`:"Filters";renderActiveFilters();
   const tasks=queryTasks(currentPayload,options).sort(taskComparator($("#sort-select").value,$("#sort-direction").value));$("#workspace-subtitle").textContent=`${tasks.length} ${tasks.length===1?"task":"tasks"}`;taskList.replaceChildren();
   if(!tasks.length&&["uploading","blocked","interrupted"].includes(initialUploadState)){renderEmptyTaskList(currentEditable&&currentPayload.spaces.length>0);return;}
-  if(!tasks.length){const filtered=Boolean(search||options.status||options.priority||options.label||options.source||options.repeat),empty=document.createElement("div"),heading=document.createElement("h2"),copy=document.createElement("p");empty.className="empty-state";heading.textContent=filtered?"No matching tasks":"Nothing here";copy.textContent=filtered?"Clear filters or change your search.":"Create a task or adjust this view.";empty.append(heading,copy);if(filtered||currentEditable&&currentPayload.spaces.length){const button=document.createElement("button");button.type="button";button.textContent=filtered?"Clear filters":"Add task";button.addEventListener("click",()=>filtered?clearFilters():openAddTask());empty.append(button);}taskList.append(empty);return;}
+  if(!tasks.length){const filtered=Boolean(search||options.status||options.priority||options.label||options.source||options.repeat),empty=document.createElement("div"),heading=document.createElement("h2"),copy=document.createElement("p");empty.className="empty-state";heading.textContent=filtered?"No matching tasks":"Nothing here";copy.textContent=filtered?"Clear filters or change your search.":"Create a task or adjust this view.";empty.append(heading,copy);if(filtered||currentEditable&&currentPayload.spaces.length){const button=document.createElement("button");button.type="button";button.textContent=filtered?"Clear filters":"Add task";button.addEventListener("click",()=>filtered?clearFilters():openTaskCapture());empty.append(button);}taskList.append(empty);return;}
   for(const [name,items,key] of groupTasks(tasks,$("#group-select").value,currentPayload.allProjects||currentPayload.projects)){if(name){const heading=document.createElement("button");heading.type="button";heading.className="task-group-heading";heading.textContent=`${name} (${items.length})`;heading.setAttribute("aria-expanded",String(!collapsedGroups.has(key||name)));heading.addEventListener("click",()=>{const id=key||name;collapsedGroups.has(id)?collapsedGroups.delete(id):collapsedGroups.add(id);persistWorkspaceState();renderTaskList();});taskList.append(heading);if(collapsedGroups.has(key||name))continue;}items.forEach(task=>taskList.append(createTaskRow(task,childrenByParent.get(task.id)||[])));}
 }
 function updateToolbarLabels(){const selected=id=>$(id).selectedOptions[0]?.textContent||"",copy=taskSortCopy($("#sort-select").value,$("#sort-direction").value,selected("#sort-select"));$("#sort-direction").options[0].textContent=copy.defaultLabel;$("#sort-direction").options[1].textContent=copy.reverseLabel;$("#sort-menu-label").textContent=copy.summary;$("#group-menu-label").textContent=`Group: ${selected("#group-select")}`;}
 function discardDetailChanges(){const action=pendingDetailsAction;pendingDetailsAction=null;$("#unsaved-dialog").close();if(detailPendingSave){requestDetailsClose(action,{keepOpen:pendingDetailsKeepOpen});return;}if(pendingDetailsKeepOpen)openDetails(selectedTaskId,{refresh:true});else detailsDialog.close();action?.();}
 async function saveBeforeLeaving(){const prompt=$("#unsaved-dialog"),error=$("#unsaved-error");if(!$("#details-form").checkValidity()){error.hidden=false;error.textContent="A task field needs attention. Choose Keep editing to correct it.";return;}const action=pendingDetailsAction,sessionGeneration=ownerSessionGeneration;prompt.querySelectorAll("button").forEach(button=>button.disabled=true);error.hidden=true;try{const result=await saveTask({preventDefault(){}},{keepOpen:pendingDetailsKeepOpen});if(sessionGeneration!==ownerSessionGeneration||!csrfToken){pendingDetailsAction=null;prompt.close();return;}if(result===true){pendingDetailsAction=null;prompt.close();action?.();}else if(result==="awaiting-refresh"){pendingDetailsAction=null;prompt.close();requestDetailsClose(action,{keepOpen:pendingDetailsKeepOpen});}else{error.textContent=detailsDialog.querySelector(".dialog-error")?.textContent||(currentEditable?"The change was not saved. Choose Keep editing to review it.":"Personal Cloud is unavailable. Keep editing until it reconnects.");error.hidden=false;}}finally{prompt.querySelectorAll("button").forEach(button=>button.disabled=false);}}
 function requestDetailsClose(action,{keepOpen=false}={}){if(!detailsDialog.open){action?.();return;}if(detailLabelBusy||detailsDialog.classList.contains("busy"))return;if(detailPendingSave){const pending=detailPendingSave;void confirmAction("Your change is saved","Waiting for a fresh task copy. Closing only closes this local draft; it does not undo the saved change. Cancel to keep it open or copy it first.","Close saved draft").then(confirmed=>{if(!confirmed||!isCurrentDetail(pending.taskId,pending.sessionGeneration,pending.editorGeneration))return;detailPendingSave=null;detailsDialog.close();action?.();});return;}if(Object.keys(captureDetailDraft()).length){detailAutosave.cancel();pendingDetailsAction=action;pendingDetailsKeepOpen=keepOpen;$("#unsaved-error").hidden=true;$("#unsaved-dialog").showModal();return;}if(!keepOpen)detailsDialog.close();action?.();}
-function selectProject(id){if(detailsDialog.open){requestDetailsClose(()=>selectProject(id));return;}selectedProjectId=id;currentView="all";collapsedGroups.clear();applyContextPreferences();persistWorkspaceState();renderSidebar();renderTaskList();}
+function selectProject(id){tasksPanel.classList.remove("mobile-navigation-open");if(isPhone())narrowProjectsOpen=false;if(detailsDialog.open){requestDetailsClose(()=>selectProject(id));return;}selectedProjectId=id;currentView="all";collapsedGroups.clear();applyContextPreferences();persistWorkspaceState();renderSidebar();renderTaskList();}
 function openGlobalSearch(){if(detailLabelBusy||detailsDialog.classList.contains("busy"))return;if(detailsDialog.open&&Object.keys(captureDetailDraft()).length){requestDetailsClose(()=>openGlobalSearch(),{keepOpen:true});return;}if(settingsRoute){location.assign("/?view=search");return;}$("#search-options").hidden=false;renderGlobalSearch();$("#global-search-dialog").showModal();}
 function updateWorkbenchLayout(){const navigationOpen=matchMedia("(max-width: 680px)").matches?tasksPanel.classList.contains("mobile-navigation-open"):!tasksPanel.classList.contains("navigation-collapsed");$("#toggle-navigation").setAttribute("aria-expanded",String(navigationOpen));const workbench=$("#workbench"),layout=workbenchLayout({width:workbench.clientWidth,view:currentView,projectId:selectedProjectId,detailsOpen:detailsDialog.open,settings:settingsRoute,narrowProjectsOpen});if(!layout.narrow)narrowProjectsOpen=false;for(const [name,on] of [["narrow",layout.narrow],["wide-projects",layout.wideProjects],["show-projects",layout.showProjects],["show-details",layout.showDetails]])workbench.classList.toggle(name,on);$("#project-pane").hidden=!layout.showProjects;$("#workspace-main").hidden=!layout.showList;$("#show-projects").hidden=!layout.projectsCommand;$("#show-projects").setAttribute("aria-expanded",String(narrowProjectsOpen));}
 function groupChildren(tasks){const map=new Map();tasks.filter(task=>task.parentId).forEach(task=>{if(!map.has(task.parentId))map.set(task.parentId,[]);map.get(task.parentId).push(task);});return map;}
@@ -246,10 +250,10 @@ function groupChildren(tasks){const map=new Map();tasks.filter(task=>task.parent
 function createTaskRow(task,children){
   const row=document.createElement("article");row.dataset.taskId=task.id;row.className=`task-row priority-${task.priority}`;const check=document.createElement("button");check.type="button";check.className="completion-button";check.setAttribute("aria-label",task.completionState==="completed"?"Reopen task":"Complete task");check.textContent=task.completionState==="completed"?"✓":"";check.disabled=!currentEditable||completionInFlight.has(task.id);check.addEventListener("click",event=>{event.stopPropagation();requestRowCompletion(task.id);});
   const copy=taskRowPresentation(task,{view:currentView,projectId:selectedProjectId,projects:currentPayload.allProjects||currentPayload.projects,children});
-  const content=document.createElement("button");content.type="button";content.className="task-row-content";const title=document.createElement("strong");title.textContent=task.title;const meta=document.createElement("span");meta.className="task-row-meta";meta.textContent=[copy.metadata,copy.status].filter(Boolean).join(" · ");meta.hidden=!meta.textContent;content.append(title,meta);content.addEventListener("click",()=>openDetails(task.id));
+  const content=document.createElement("button");content.type="button";content.className="task-row-content";const title=document.createElement("strong");title.textContent=task.title;const meta=document.createElement("span");meta.className="task-row-meta";meta.textContent=[copy.metadata,copy.status].filter(Boolean).join(" · ");meta.hidden=!meta.textContent;content.append(title,meta);content.addEventListener("click",()=>openDetails(task.id,{focus:!isPhone()}));
   const badges=document.createElement("span");badges.className="task-row-badges";
   for(const [kind,text] of [["priority",copy.priority]])if(text){const badge=document.createElement("span");badge.className=`status-badge ${kind}-badge`;badge.textContent=text;badges.append(badge);}
-  row.append(check,content,badges);appendTaskRowActions({row,task,editable:currentEditable&&workspaceSupported(),onEdit:editTaskField,onDelete:deleteTaskFromRow});return row;
+  row.append(check,content,badges);appendTaskRowActions({row,task,editable:currentEditable&&workspaceSupported(),onEdit:editTaskField,onDelete:deleteTaskFromRow});bindLongPress(row,()=>{const trigger=row.querySelector(".row-actions-trigger");if(isPhone()&&trigger&&!trigger.disabled)trigger.click();});return row;
 }
 function editTaskField(id,field){const open=()=>{openDetails(id);if(detailsDialog.open&&selectedTaskId===id)$("#"+field).focus();};if(detailsDialog.open&&(selectedTaskId!==id||Object.keys(captureDetailDraft()).length)){requestDetailsClose(open,{keepOpen:selectedTaskId===id});return;}open();}
 function deleteTaskFromRow(id){const remove=()=>{openDetails(id);if(detailsDialog.open&&selectedTaskId===id)void deleteSelectedTask();};if(detailsDialog.open&&(selectedTaskId!==id||Object.keys(captureDetailDraft()).length)){requestDetailsClose(remove);return;}remove();}
@@ -335,7 +339,7 @@ function renderInitialStatus(copy){
 function renderEmptyTaskList(canAdd){
   const copy=initialEmptyState(initialUploadState,currentPayload.tasks.length>0),empty=document.createElement("div"),heading=document.createElement("h2"),detail=document.createElement("p");
   empty.className="empty-state";heading.textContent=copy.title;detail.textContent=copy.detail;empty.append(heading,detail);
-  if(canAdd){const button=document.createElement("button");button.type="button";button.textContent="Add task";button.addEventListener("click",openAddTask);empty.append(button);}taskList.append(empty);
+  if(canAdd){const button=document.createElement("button");button.type="button";button.textContent="Add task";button.addEventListener("click",()=>openTaskCapture());empty.append(button);}taskList.append(empty);
 }
 
 function persistProjectPreferences(){try{localStorage.setItem("openza-personal-cloud-project-preferences",JSON.stringify({sort:$("#project-sort").value,direction:$("#project-direction").value,favorites:$("#project-favorites").checked,status:$("#project-status").value}));}catch{}}
@@ -373,6 +377,72 @@ async function resumeCloud(){
  try{await api("/health");}catch{applyCloudBrake();return;}
  applyCloudBrake();
 }
+
+// Phone layout: the same Desktop views, quick add and row commands, reached
+// through a bottom tab bar, bottom sheets and full-screen layers.
+function bindPhoneEvents(){
+  $("#phone-tabs").addEventListener("click",event=>{const button=event.target.closest("button[data-phone-tab]");if(button)selectPhoneTab(button.dataset.phoneTab);});
+  $("#phone-add").addEventListener("click",()=>openTaskCapture());
+  $("#phone-search").addEventListener("click",()=>openGlobalSearch());
+  $("#phone-view-options").addEventListener("click",togglePhoneViewOptions);
+  $("#phone-projects").addEventListener("click",openPhoneProjects);
+  $("#quick-add-form").addEventListener("submit",createQuickTask);
+  $("#quick-add-more").addEventListener("click",quickAddMoreFields);
+  $("#quick-add-dialog").addEventListener("click",event=>{if(event.target===event.currentTarget&&!$("#quick-add-submit").disabled)event.currentTarget.close();});
+  $("#install-card-dismiss").addEventListener("click",()=>{try{localStorage.setItem(installDismissKey,"1");}catch{}renderInstallCard();});
+  $("#install-card-action").addEventListener("click",async()=>{const prompt=installPrompt;if(!prompt)return;installPrompt=null;try{await prompt.prompt();await prompt.userChoice;}catch{}renderInstallCard();});
+  window.addEventListener("beforeinstallprompt",event=>{event.preventDefault();installPrompt=event;renderInstallCard();});
+  window.addEventListener("appinstalled",()=>{installPrompt=null;renderInstallCard();});
+  phoneMedia.addEventListener("change",()=>{if(!isPhone())tasksPanel.classList.remove("mobile-navigation-open","phone-options-open");updateWorkbenchLayout();renderPhoneChrome();});
+  // Chrome renders with the sidebar; view constants are not ready during bindEvents.
+  watchPhoneLayers();trackKeyboard();
+}
+function renderPhoneChrome(){
+  const tab=phoneTabFor({view:currentView,projectId:selectedProjectId}),moreOpen=tasksPanel.classList.contains("mobile-navigation-open");
+  document.querySelectorAll("[data-phone-tab]").forEach(button=>{const name=button.dataset.phoneTab,active=settingsRoute?name==="more"&&moreOpen:moreOpen?name==="more":name===tab;button.classList.toggle("active",active);if(name==="more")button.setAttribute("aria-expanded",String(moreOpen));else if(active)button.setAttribute("aria-current","page");else button.removeAttribute("aria-current");});
+  $("#phone-add").disabled=!currentEditable||!workspaceSupported()||!currentPayload.spaces.length;
+  const project=(currentPayload.allProjects||currentPayload.projects).find(item=>item.id===selectedProjectId);$("#details-back-label").textContent=project?.name||(viewCopy[currentView]||viewCopy.all)[0];
+  renderInstallCard();
+}
+function selectPhoneTab(tab){if(tab==="more"){toggleMorePanel();return;}if(detailsDialog.open){closeDetailsFromUser(()=>selectPhoneTab(tab));return;}if(tab===currentView&&!selectedProjectId&&!tasksPanel.classList.contains("mobile-navigation-open")){$("#task-list").scrollTo({top:0,behavior:"smooth"});return;}selectView(tab);renderPhoneChrome();}
+function toggleMorePanel(open=!tasksPanel.classList.contains("mobile-navigation-open")){if(open&&detailsDialog.open)return;tasksPanel.classList.toggle("mobile-navigation-open",open);updateWorkbenchLayout();renderPhoneChrome();}
+function openPhoneProjects(){if(settingsRoute){location.assign("/?view=all");return;}selectView("all");narrowProjectsOpen=true;updateWorkbenchLayout();renderPhoneChrome();}
+function togglePhoneViewOptions(){const open=!tasksPanel.classList.contains("phone-options-open");tasksPanel.classList.toggle("phone-options-open",open);$("#phone-view-options").setAttribute("aria-expanded",String(open));}
+function openTaskCapture(){if(isPhone())openQuickAdd();else openAddTask();}
+function quickAddProject(){return currentPayload.projects.find(item=>item.id===selectedProjectId)||null;}
+function setQuickAddBusy(busy){for(const id of ["quick-add-title","quick-add-submit","quick-add-more"])$("#"+id).disabled=busy||!currentEditable;}
+function openQuickAdd(){const dialog=$("#quick-add-dialog");if(!currentEditable||!workspaceSupported()||!currentPayload.spaces.length||dialog.open)return;$("#quick-add-context").textContent=quickAddContext({view:currentView,project:quickAddProject(),viewTitle:(viewCopy[currentView]||viewCopy.all)[0]});$("#quick-add-status").textContent="";$("#quick-add-title").value="";setQuickAddBusy(false);dialog.showModal();$("#quick-add-title").focus();}
+async function createQuickTask(event){
+  event.preventDefault();if(!currentEditable||!workspaceSupported())return;
+  const input=$("#quick-add-title"),status=$("#quick-add-status"),title=input.value.trim(),validation=taskTextError(title,"");
+  if(validation){status.textContent=validation;input.focus();return;}
+  const sessionGeneration=ownerSessionGeneration,defaults=quickAddDefaults({view:currentView,project:quickAddProject(),spaceId:creationSpace(currentPayload.spaces,selectedSpaceId),today:localDate(new Date())});
+  setQuickAddBusy(true);status.textContent="Adding…";let accepted=false;
+  try{
+    const id=`task_${crypto.randomUUID().replaceAll("-","")}`;
+    await sendMutation(id,null,"task.createRich",{task:{id,spaceId:defaults.spaceId,title,workflowStatus:defaults.workflowStatus,priority:defaults.priority,createdAt:new Date().toISOString(),notes:null,plannedOn:defaults.plannedOn,plannedAt:null,deadlineOn:null,deadlineAt:null,scheduledStart:null,scheduledEnd:null,durationMinutes:null,recurrenceRule:null,projectId:defaults.projectId,labels:[]}});
+    if(sessionGeneration!==ownerSessionGeneration)return;
+    accepted=true;input.value="";status.textContent=`Added “${title}”`;setQuickAddBusy(false);if($("#quick-add-dialog").open)input.focus();
+    await finishMutations();
+  }catch(error){if(sessionGeneration!==ownerSessionGeneration)return;if(accepted){status.textContent=`Added “${title}”. The list will refresh shortly.`;void loadTasks({afterMutation:true});}else status.textContent=error.message;}
+  finally{if(sessionGeneration===ownerSessionGeneration&&!accepted){setQuickAddBusy(false);if($("#quick-add-dialog").open)input.focus();}}
+}
+function quickAddMoreFields(){const title=$("#quick-add-title").value;$("#quick-add-dialog").close();openAddTask();if(taskDialog.open)$("#new-title").value=title;}
+function closeDetailsFromUser(action){if(!detailsDialog.open){action?.();return;}if(isPhone()&&currentEditable&&!detailLabelBusy&&!detailPendingSave&&!detailsDialog.classList.contains("busy")&&Object.keys(captureDetailDraft()).length&&$("#details-form").checkValidity()){void saveAndCloseDetails(action);return;}requestDetailsClose(action);}
+async function saveAndCloseDetails(action){detailAutosave.cancel();const result=await saveTask({preventDefault(){}},{keepOpen:false});if(!detailsDialog.open)setDialogBusy(detailsDialog,false);if(result===true)action?.();else if(result==="awaiting-refresh")requestDetailsClose(action);}
+function isStandalone(){return matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;}
+function isIos(){return /iphone|ipad|ipod/i.test(navigator.userAgent)||navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1;}
+function installDismissed(){try{return localStorage.getItem(installDismissKey)==="1";}catch{return false;}}
+function renderInstallCard(){const card=$("#install-card"),state=installCardState({standalone:isStandalone(),dismissed:installDismissed(),ios:isIos(),promptReady:Boolean(installPrompt)});card.hidden=!isPhone()||settingsRoute||!state.show;$("#install-card-action").hidden=state.mode!=="prompt";$("#install-card-copy").textContent=state.mode==="ios"?"Opens full screen like an app. In Safari, tap Share, then Add to Home Screen.":state.mode==="prompt"?"Opens full screen like an app.":"Opens full screen like an app. In your browser menu, choose Add to Home screen or Install app.";}
+function watchPhoneLayers(){
+  const quick=$("#quick-add-dialog"),search=$("#global-search-dialog");
+  for(const [name,element,isOpen,close,attribute] of [["details",detailsDialog,()=>detailsDialog.open,()=>closeDetailsFromUser(),"open"],["quick-add",quick,()=>quick.open,()=>quick.close(),"open"],["search",search,()=>search.open,()=>search.close(),"open"],["more",tasksPanel,()=>tasksPanel.classList.contains("mobile-navigation-open"),()=>toggleMorePanel(false),"class"]]){
+    let wasOpen=isOpen();
+    new MutationObserver(()=>{const open=isOpen();if(open===wasOpen)return;wasOpen=open;if(open){if(isPhone())backStack.opened(name,{close});}else backStack.closed(name);}).observe(element,{attributes:true,attributeFilter:[attribute]});
+  }
+  window.addEventListener("popstate",()=>backStack.popped());
+}
+function trackKeyboard(){const viewport=window.visualViewport;if(!viewport)return;const update=()=>document.documentElement.style.setProperty("--keyboard-inset",`${keyboardInset({innerHeight:window.innerHeight,viewportHeight:viewport.height,viewportOffsetTop:viewport.offsetTop})}px`);viewport.addEventListener("resize",update);viewport.addEventListener("scroll",update);update();}
 
 // A persisted brake can render synchronously. All view constants must exist
 // before startup, even when there is no initial network await.

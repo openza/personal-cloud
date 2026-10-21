@@ -49,8 +49,31 @@ At 900px or more, Projects uses 300px (360px from 1250px), the editor uses
 42% clamped to 460–620px, and the list takes the remainder. Below 900px, a
 selected editor replaces the list and Projects; without an editor, a Projects
 command toggles the optional inline project list. Narrow editor fields stack
-using the editor's own width. On phone-width screens, navigation becomes a
-horizontal disclosure above the workbench.
+using the editor's own width.
+
+At phone width (680px or less) the Web is mobile-first and installable as a
+home-screen app (`manifest.json`, `display: standalone`). It keeps the Desktop
+views and commands and changes only how they are reached:
+
+- A bottom tab bar holds Today, Inbox, Add task, Next Actions and More. More
+  lists the remaining Desktop views (Calendar, Overdue, Waiting For, Someday,
+  Tasks, Completed), Projects, the Space menu, connection status and Settings.
+- Add task is a title-only bottom sheet with the Desktop quick-add defaults:
+  the current project, the view's status and today's date in Today. Enter adds
+  the task and keeps the sheet ready for the next one; More fields opens the
+  full form. The sheet follows the on-screen keyboard.
+- Task details open full screen without focusing a field. Back (the button or
+  the system gesture) saves pending edits and closes the editor. Quick add,
+  Search and More also close with the system Back gesture.
+- Row commands (⋯ or a touch long-press) and Filters open as bottom sheets.
+  Sort, Group and Filters sit behind a header icon; Search is a header icon and
+  opens full screen.
+- Touch targets are at least 44px and inputs use 16px text so iOS does not
+  zoom. A dismissible card explains how to add Openza to the home screen.
+
+The phone Web is online only: without a connection it shows the last confirmed
+tasks read only, as before. There is no swipe, undo or reminder behaviour that
+Desktop lacks.
 
 Global Search is an owner modal and leaves the underlying task context intact
 when cancelled. Settings uses the same navigation and a compact scrollable
