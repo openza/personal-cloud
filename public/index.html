@@ -2,15 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#111827" media="(prefers-color-scheme: dark)">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Openza">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="color-scheme" content="light dark">
     <title>Openza Personal Cloud</title>
     <meta name="description" content="Your synchronized Openza task workspace.">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/styles.css?v=desktop-parity-5">
+    <link rel="stylesheet" href="/styles.css?v=mobile-1">
     <script type="module" src="/appearance.js?v=parity-3"></script>
-    <script type="module" src="/app.js?v=desktop-parity-5"></script>
+    <script type="module" src="/app.js?v=mobile-1"></script>
   </head>
   <body>
     <header id="site-header" class="site-header">
@@ -73,6 +80,7 @@
           <button type="button" data-view="all"><span class="nav-icon" aria-hidden="true"></span> Tasks <small data-count="all"></small></button>
           <button type="button" data-view="completed"><span class="nav-icon" aria-hidden="true"></span> Completed <small data-count="completed"></small></button>
         </nav>
+        <button id="phone-projects" class="phone-more-link" type="button">Projects</button>
         <div class="sidebar-bottom"><div id="status-pill" class="status-pill loading" role="status" aria-live="polite"><span class="status-dot" aria-hidden="true"></span><span id="status-label">Connecting</span></div>
         <details id="space-menu" class="space-menu"><summary id="space-menu-label">All Spaces</summary><div class="space-menu-content"><p>Spaces</p><div id="space-list" class="space-list"></div></div></details>
         <a class="sidebar-settings" href="/settings"><span class="nav-icon" aria-hidden="true"></span>Settings</a>
@@ -81,7 +89,7 @@
       <div id="workbench" class="workbench">
       <aside id="project-pane" class="project-pane" aria-label="Projects" hidden><div class="panel-heading"><h2>Projects</h2><button id="pane-create-project" class="secondary-button create-project-icon" type="button" disabled aria-label="Create project" title="Create project"><img src="/fluent-add-circle.svg" width="20" height="20" alt=""></button></div><p>Filter all tasks</p><input id="project-search" type="search" placeholder="Filter projects" aria-label="Search projects"><label class="field-label">Project status<select id="project-status"><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option><option value="all">All projects</option></select></label><details class="control-menu"><summary>Sort projects</summary><div class="control-menu-content"><label>Sort<select id="project-sort" aria-label="Sort projects"><option value="name">Name</option><option value="count">Open task count</option><option value="default">Default order</option><option value="created">Created date</option><option value="updated">Updated date</option></select></label><label>Direction<select id="project-direction"><option value="default">Ascending</option><option value="reverse">Descending</option></select></label><label class="check-label"><input id="project-favorites" type="checkbox" checked>Favorites first</label></div></details><div id="project-list" class="space-list"></div></aside>
       <div id="workspace-main" class="workspace-main">
-        <header class="workspace-header"><div><p id="workspace-eyebrow" class="workspace-eyebrow">Inbox</p><h1 id="workspace-title">Inbox</h1><p id="workspace-subtitle">Capture first. Organize when it helps.</p></div><div class="workspace-actions"><button id="show-projects" class="quiet-button" type="button" aria-controls="project-pane" aria-expanded="false" hidden>Projects</button><button id="header-add-task" class="quiet-button" type="button" disabled>Add task</button><details id="workspace-menu" class="control-menu"><summary aria-label="Workspace actions">More</summary><div class="control-menu-content"><button id="manage-workspace" type="button" class="quiet-button">Manage workspace</button><button id="retry" class="quiet-button" type="button">Refresh tasks</button></div></details></div></header>
+        <header class="workspace-header"><div><p id="workspace-eyebrow" class="workspace-eyebrow">Inbox</p><h1 id="workspace-title">Inbox</h1><p id="workspace-subtitle">Capture first. Organize when it helps.</p></div><div class="workspace-actions"><button id="show-projects" class="quiet-button" type="button" aria-controls="project-pane" aria-expanded="false" hidden>Projects</button><button id="header-add-task" class="quiet-button" type="button" disabled>Add task</button><button id="phone-view-options" class="phone-icon-button" type="button" aria-expanded="false" aria-controls="task-content" aria-label="Sort, group and filter"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg></button><button id="phone-search" class="phone-icon-button" type="button" aria-label="Search"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button><details id="workspace-menu" class="control-menu"><summary aria-label="Workspace actions">More</summary><div class="control-menu-content"><button id="manage-workspace" type="button" class="quiet-button">Manage workspace</button><button id="retry" class="quiet-button" type="button">Refresh tasks</button></div></details></div></header>
         <div id="task-content">
         <div class="task-toolbar">
           <label class="search-box"><input id="task-search" type="search" placeholder="Search tasks" aria-label="Search tasks" autocomplete="off"></label>
@@ -102,13 +110,27 @@
           <summary id="initial-sync-title" role="status" aria-live="polite" aria-atomic="true"></summary><div><p id="initial-sync-detail"></p><ul id="initial-sync-devices"></ul></div>
           <button id="initial-sync-refresh" class="secondary-button" type="button">Refresh upload status and tasks</button>
         </details>
+        <section id="install-card" class="install-card" aria-labelledby="install-card-title" hidden><div><strong id="install-card-title">Add Openza to your home screen</strong><p id="install-card-copy">Opens full screen like an app.</p></div><button id="install-card-dismiss" class="phone-icon-button" type="button" aria-label="Dismiss"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button><button id="install-card-action" type="button" hidden>Install</button></section>
         <div id="notice" class="workspace-notice" aria-live="polite"><strong>Checking Personal Cloud…</strong><span>Confirming the latest synchronized tasks.</span></div>
         <div id="fanout-draft" class="workspace-notice" aria-live="polite" hidden><strong>Large change saved in this browser</strong><span id="fanout-draft-copy"></span><div><button id="retry-fanout-draft" type="button">Review and try again</button><button id="cancel-fanout-draft" type="button">Remove saved change</button></div></div>
         <div id="unfinished-web-change" class="workspace-notice" aria-live="polite" hidden><strong>Unfinished change</strong><span id="unfinished-web-copy">Check this unfinished change before sending more changes. You can still view the latest tasks.</span><button id="check-unfinished-web-change" type="button">Check unfinished change</button></div>
         <div id="task-list" class="task-list" aria-busy="true"></div><p id="last-updated" class="last-updated"></p></div>
       </div>
       </div>
+      <nav id="phone-tabs" class="phone-tabs" aria-label="Main">
+        <button type="button" data-phone-tab="today"><span class="nav-icon" aria-hidden="true"></span>Today</button>
+        <button type="button" data-phone-tab="inbox"><span class="nav-icon" aria-hidden="true"></span>Inbox</button>
+        <button id="phone-add" class="phone-add" type="button" aria-label="Add task" disabled><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button type="button" data-phone-tab="next"><span class="nav-icon" aria-hidden="true"></span>Next</button>
+        <button type="button" data-phone-tab="more" aria-expanded="false" aria-controls="view-nav"><span class="nav-icon" aria-hidden="true"></span>More</button>
+      </nav>
     </section>
+
+    <dialog id="quick-add-dialog" class="task-dialog sheet-dialog" aria-labelledby="quick-add-context"><form id="quick-add-form" method="dialog">
+      <label id="quick-add-context" for="quick-add-title">Adds to Inbox</label>
+      <div class="quick-add-row"><input id="quick-add-title" maxlength="500" placeholder="Task title" autocomplete="off" enterkeyhint="done" required><button id="quick-add-submit" type="submit">Add</button></div>
+      <div class="quick-add-footer"><span id="quick-add-status" role="status" aria-live="polite"></span><button id="quick-add-more" class="quiet-button" type="button">More fields</button></div>
+    </form></dialog>
 
     <dialog id="task-dialog" class="task-dialog"><form id="task-form" method="dialog">
       <div class="dialog-heading"><div><p class="section-label">Openza task</p><h2>Add task</h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
@@ -116,11 +138,12 @@
       <div class="form-grid"><label>Space<select id="new-space"></select></label><label>Project<select id="new-project"><option value="">No project</option></select></label></div>
       <div class="form-grid"><label>Status<select id="new-status"><option value="inbox">Inbox</option><option value="next">Next</option><option value="waiting">Waiting</option><option value="someday">Someday</option><option value="none">None</option></select></label><label>Priority<select id="new-priority"><option value="1">Urgent</option><option value="2">High</option><option value="3" selected>Normal</option><option value="4">Low</option></select></label></div>
       <div class="form-grid"><label>Planned date<input id="new-planned" type="date"></label><label>Deadline<input id="new-deadline" type="date"></label></div><label>Labels<input id="new-labels" placeholder="Focus, Review"></label>
-      <div class="dialog-actions"><button class="secondary-button" type="button" data-close-dialog>Cancel</button><button id="create-open-task" class="secondary-button" type="submit" value="open">Create and open</button><button id="create-task" type="submit" value="default">Create</button></div>
+      <div class="dialog-actions"><button class="secondary-button" type="button" data-close-dialog>Cancel</button><button id="create-task" type="submit" value="default">Create</button><button id="create-open-task" class="secondary-button" type="submit" value="open">Create and open</button></div>
     </form></dialog>
 
     <dialog id="details-dialog" class="task-dialog details-dialog" aria-label="Task details"><form id="details-form" method="dialog">
-      <div class="detail-title-row"><input id="details-completion" type="checkbox" aria-label="Task completed"><div class="detail-title-content"><label class="details-title-field"><span class="visually-hidden">Title</span><textarea id="details-title" required maxlength="500" rows="1"></textarea></label><p id="details-source" class="section-label">Openza task</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div><div class="panel-heading"><h3 class="organize-heading">Organize</h3><details id="copy-task-menu" class="control-menu"><summary>Copy</summary><div class="control-menu-content"><button type="button" class="quiet-button" data-readonly-navigation data-copy-task="title">Copy title</button><button type="button" class="quiet-button" data-readonly-navigation data-copy-task="notes">Copy notes</button><button id="copy-source" type="button" class="quiet-button" data-readonly-navigation data-copy-task="source">Copy source</button><button type="button" class="quiet-button" data-readonly-navigation data-copy-task="metadata">Copy task information</button></div></details></div><span id="details-save-status" role="status" aria-live="polite">Saved</span><p id="details-command-status" role="status" aria-live="polite" hidden></p>
+      <div class="details-phone-bar"><button id="details-back" class="quiet-button" type="button" data-close-dialog aria-label="Back to task list"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span id="details-back-label">Back</span></button></div>
+      <div class="detail-title-row"><label class="completion-hit"><input id="details-completion" type="checkbox" aria-label="Task completed"></label><div class="detail-title-content"><label class="details-title-field"><span class="visually-hidden">Title</span><textarea id="details-title" required maxlength="500" rows="1"></textarea></label><p id="details-source" class="section-label">Openza task</p></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div><div class="panel-heading"><h3 class="organize-heading">Organize</h3><details id="copy-task-menu" class="control-menu"><summary>Copy</summary><div class="control-menu-content"><button type="button" class="quiet-button" data-readonly-navigation data-copy-task="title">Copy title</button><button type="button" class="quiet-button" data-readonly-navigation data-copy-task="notes">Copy notes</button><button id="copy-source" type="button" class="quiet-button" data-readonly-navigation data-copy-task="source">Copy source</button><button type="button" class="quiet-button" data-readonly-navigation data-copy-task="metadata">Copy task information</button></div></details></div><span id="details-save-status" role="status" aria-live="polite">Saved</span><p id="details-command-status" role="status" aria-live="polite" hidden></p>
       <div class="detail-properties"><label>Status<select id="details-status"><option value="inbox">Inbox</option><option value="next">Next</option><option value="waiting">Waiting</option><option value="someday">Someday</option><option value="none">None</option></select></label><label>Project<select id="details-project"><option value="">No project</option></select></label>
       <label>Date<input id="details-planned" type="date"><small id="details-planned-hint"></small></label><label>Deadline<input id="details-deadline" type="date"></label>
       <label>Priority<select id="details-priority"><option value="1">Urgent</option><option value="2">High</option><option value="3">Normal</option><option value="4">Low</option></select></label><label>Space<select id="details-space"></select></label></div>
