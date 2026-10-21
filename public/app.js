@@ -52,7 +52,7 @@ let detailEditorGeneration=0,detailPendingSave=null;
 let featureHealth=null;
 const workspaceControls=createWorkspaceControls({getState:()=>({payload:currentPayload,selectedSpaceId,generation:ownerSessionGeneration,editable:currentEditable,supported:workspaceSupported()}),sendMutation,refresh:finishMutations});
 const detailAutosave=createDetailAutosave({dirty:()=>detailsDialog.open&&Object.keys(captureDetailDraft()).length>0,busy:()=>detailLabelBusy||detailsDialog.classList.contains("busy")||!currentEditable,save:()=>saveTask({preventDefault(){}},{keepOpen:true}),status:text=>$("#details-save-status").textContent=text});
-const phoneMedia=matchMedia(PHONE_QUERY),isPhone=()=>phoneMedia.matches,installDismissKey="openza-personal-cloud-install-dismissed",backStack=createBackStack({history});let installPrompt=null,quickAddGeneration=0,pendingProjectsRequest=false;
+const phoneMedia=matchMedia(PHONE_QUERY),isPhone=()=>phoneMedia.matches,installDismissKey="openza-personal-cloud-install-dismissed",backStack=createBackStack({history});let installPrompt=null,quickAddGeneration=0,pendingProjectsRequest=false,phoneLayers=[];
 function workspaceSupported(){return featureHealth?.capabilities?.workspace?.protocolVersion===1;}
 function renderFanoutDraft(){
  const panel=$('#fanout-draft');if(!panel)return;
@@ -393,7 +393,7 @@ function bindPhoneEvents(){
   $("#install-card-action").addEventListener("click",async()=>{const prompt=installPrompt;if(!prompt)return;installPrompt=null;try{await prompt.prompt();await prompt.userChoice;}catch{}renderInstallCard();});
   window.addEventListener("beforeinstallprompt",event=>{event.preventDefault();installPrompt=event;renderInstallCard();});
   window.addEventListener("appinstalled",()=>{installPrompt=null;renderInstallCard();});
-  phoneMedia.addEventListener("change",()=>{if(!isPhone())tasksPanel.classList.remove("mobile-navigation-open","phone-options-open");updateWorkbenchLayout();renderPhoneChrome();});
+  phoneMedia.addEventListener("change",()=>{if(!isPhone())tasksPanel.classList.remove("mobile-navigation-open","phone-options-open");else for(const layer of phoneLayers)if(layer.isOpen())backStack.opened(layer.name,{close:layer.close});updateWorkbenchLayout();renderPhoneChrome();});
   try{pendingProjectsRequest=!settingsRoute&&sessionStorage.getItem("openza-requested-projects")==="1";sessionStorage.removeItem("openza-requested-projects");}catch{}
   // Chrome renders with the sidebar; view constants are not ready during bindEvents.
   watchPhoneLayers();trackKeyboard();
@@ -442,8 +442,9 @@ function installDismissed(){try{return localStorage.getItem(installDismissKey)==
 function renderInstallCard(){const card=$("#install-card"),state=installCardState({standalone:isStandalone(),dismissed:installDismissed(),ios:isIos(),promptReady:Boolean(installPrompt)});card.hidden=!isPhone()||settingsRoute||!state.show;$("#install-card-action").hidden=state.mode!=="prompt";$("#install-card-copy").textContent=state.mode==="ios"?"Opens full screen like an app. In Safari, tap Share, then Add to Home Screen.":state.mode==="prompt"?"Opens full screen like an app.":"Opens full screen like an app. In your browser menu, choose Add to Home screen or Install app.";}
 function watchPhoneLayers(){
   const quick=$("#quick-add-dialog"),search=$("#global-search-dialog");
+  phoneLayers=[];
   for(const [name,element,isOpen,close,attribute] of [["details",detailsDialog,()=>detailsDialog.open,backFromDetails,"open"],["quick-add",quick,()=>quick.open,()=>quick.close(),"open"],["search",search,()=>search.open,()=>search.close(),"open"],["more",tasksPanel,()=>tasksPanel.classList.contains("mobile-navigation-open"),()=>toggleMorePanel(false),"class"]]){
-    let wasOpen=isOpen();
+    phoneLayers.push({name,isOpen,close});let wasOpen=isOpen();
     new MutationObserver(()=>{const open=isOpen();if(open===wasOpen)return;wasOpen=open;if(open){if(isPhone())backStack.opened(name,{close});}else backStack.closed(name);}).observe(element,{attributes:true,attributeFilter:[attribute]});
   }
   window.addEventListener("popstate",()=>backStack.popped());

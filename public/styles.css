@@ -417,7 +417,8 @@ label:has(> input[type="checkbox"]), .check-label { display: flex; align-items: 
   .completion-button::before { content: ""; position: absolute; inset: 11px; z-index: -1; border: 1.5px solid var(--control-border); border-radius: 5px; background: var(--surface); }
   .completion-button:not(:empty) { background: transparent; }
   .completion-button:not(:empty)::before { border-color: var(--accent); background: var(--accent); }
-  .task-row-content { padding: 8px 0; }
+  .task-row-content { min-height: 44px; padding: 8px 0; }
+  .dialog-actions button, .unsaved-actions button { min-height: 44px; }
   .task-row-content strong { font-size: 16px; line-height: 1.35; }
   .task-row-meta { font-size: 13px; }
   .row-actions-trigger { width: 44px; height: 44px; opacity: 1; }
