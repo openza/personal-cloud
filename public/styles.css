@@ -302,7 +302,7 @@ label:has(> input[type="checkbox"]), .check-label { display: flex; align-items: 
 .settings-row p { margin:6px 0 0; color:var(--secondary); }
 .settings-row label { min-width:150px; }
 .detail-title-row { display:flex; align-items:flex-start; gap:12px; }
-.detail-title-row > input { margin-top:12px; flex-shrink:0; }
+.detail-title-row #details-completion { margin-top:12px; flex-shrink:0; }
 .details-title-field { flex:1; min-width:0; }
 .details-title-field :is(input,textarea) { font-size:22px; background:transparent; }
 .detail-title-content { flex:1; min-width:0; }
@@ -343,6 +343,7 @@ label:has(> input[type="checkbox"]), .check-label { display: flex; align-items: 
    tab bar, bottom sheets and full-screen layers. Touch targets are ≥44px and
    inputs use 16px text so iOS does not zoom on focus. */
 .phone-tabs, .phone-more-link, .phone-icon-button, .details-phone-bar { display: none; }
+.completion-hit { display: contents; }
 #task-form .dialog-actions #create-task { order: 1; }
 .install-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 4px 8px; margin: 4px 0 8px; padding: 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
 .install-card[hidden] { display: none; }
@@ -440,7 +441,10 @@ label:has(> input[type="checkbox"]), .check-label { display: flex; align-items: 
   .details-phone-bar { display: flex; align-items: center; position: sticky; top: 0; z-index: 2; margin: -20px -20px 0; padding: calc(4px + env(safe-area-inset-top)) 8px 4px; border-bottom: 1px solid var(--border); background: var(--pane); }
   #details-back { display: flex; align-items: center; gap: 2px; min-height: 44px; padding: 0 10px 0 4px; color: var(--text); font-size: 16px; font-weight: 500; }
   .detail-title-row > .icon-button { display: none; }
-  #details-completion { width: 24px; height: 24px; }
+  .completion-hit { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; margin: 0 -8px 0 -10px; cursor: pointer; }
+  #details-completion { width: 24px; height: 24px; margin: 0; }
+  .label-chip { min-height: 44px; padding: 0 0 0 12px; font-size: 14px; }
+  .label-chip button { width: 44px; height: 44px; font-size: 18px; }
   .detail-properties > label { grid-template-columns: 84px minmax(0, 1fr); }
   .detail-properties :is(select, input) { min-height: 44px; }
   .label-add :is(select, input, button) { min-height: 44px; }

@@ -108,3 +108,74 @@ test('installable app metadata and phone markup are present', () => {
   const phone = css.slice(css.lastIndexOf('@media (max-width: 680px)'));
   assert.match(phone, /input, select, textarea \{ font-size: 16px; \}/);
 });
+
+function fakeElement() {
+  const listeners = {};
+  return {
+    listeners,
+    addEventListener(type, listener) { (listeners[type] ||= []).push(listener); },
+    dispatch(type, event = {}) {
+      const record = {defaultPrevented: false, stopped: false, isTrusted: true, ...event,
+        preventDefault() { record.defaultPrevented = true; }, stopPropagation() { record.stopped = true; }};
+      for (const listener of listeners[type] || []) listener(record);
+      return record;
+    },
+  };
+}
+
+test('long press opens the row menu through a programmatic click and swallows only the finger click', async () => {
+  const {bindLongPress} = await import('../public/phone-shell.js');
+  const row = fakeElement();
+  let menuClicks = 0;
+  bindLongPress(row, () => { const click = row.dispatch('click', {isTrusted: false}); if (!click.stopped) menuClicks++; }, {delay: 5});
+  row.dispatch('pointerdown', {pointerType: 'touch', clientX: 10, clientY: 10});
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(menuClicks, 1, 'the programmatic menu click is not cancelled');
+  row.dispatch('pointerup');
+  const fingerClick = row.dispatch('click');
+  assert.equal(fingerClick.stopped, true, 'the release click does not also open details');
+  const nextTap = row.dispatch('click');
+  assert.equal(nextTap.stopped, false, 'later taps work normally');
+});
+
+test('long press is cancelled by movement and ignored for mouse input', async () => {
+  const {bindLongPress} = await import('../public/phone-shell.js');
+  const row = fakeElement();
+  let fired = 0;
+  bindLongPress(row, () => fired++, {delay: 5});
+  row.dispatch('pointerdown', {pointerType: 'touch', clientX: 0, clientY: 0});
+  row.dispatch('pointermove', {clientX: 0, clientY: 40});
+  row.dispatch('pointerdown', {pointerType: 'mouse', clientX: 0, clientY: 0});
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(fired, 0);
+});
+
+const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+import vm from 'node:vm';
+function extract(context, name) { vm.runInContext(appSource.match(new RegExp(`^(?:async )?function ${name}\\(.*$`, 'm'))[0], context); }
+
+test('Back answers an open Save/Discard or confirmation prompt instead of saving the editor beneath it', () => {
+  const dialogs = {'#unsaved-dialog': {open: true}, '#confirmation-dialog': {open: false, close(value) { this.open = false; this.value = value; }}};
+  let keepEditing = 0, saves = 0;
+  const context = vm.createContext({
+    $: id => id === '#keep-editing' ? {click: () => { keepEditing++; dialogs['#unsaved-dialog'].open = false; }} : dialogs[id],
+    detailsDialog: {open: true}, isPhone: () => true, currentEditable: true, detailLabelBusy: false, detailPendingSave: null,
+    captureDetailDraft: () => ({'details-notes': 'draft'}), saveAndCloseDetails: () => { saves++; }, requestDetailsClose: () => { saves++; },
+  });
+  for (const name of ['detailsPromptOpen', 'backFromDetails', 'closeDetailsFromUser']) extract(context, name);
+  context.backFromDetails();
+  assert.equal(keepEditing, 1);
+  assert.equal(saves, 0);
+  dialogs['#confirmation-dialog'].open = true;
+  context.backFromDetails();
+  assert.equal(dialogs['#confirmation-dialog'].value, 'cancel');
+  assert.equal(saves, 0);
+  dialogs['#unsaved-dialog'].open = true;
+  context.closeDetailsFromUser();
+  assert.equal(saves, 0, 'no save starts beneath an open prompt');
+});
+
+test('sign-out closes quick add and a Settings tab tap always navigates', () => {
+  assert.match(appSource.match(/^async function signOut\(.*$/m)[0], /resetQuickAdd\(\)/);
+  assert.match(appSource.match(/^function selectPhoneTab\(.*$/m)[0], /if\(!settingsRoute&&tab===currentView/);
+});

@@ -86,8 +86,10 @@ export function bindLongPress(element, onLongPress, {delay = 500, slop = 10} = {
   });
   for (const type of ['pointerup', 'pointercancel', 'pointerleave']) element.addEventListener(type, cancel);
   element.addEventListener('contextmenu', event => { if (timer || fired) event.preventDefault(); });
+  // Suppress only the finger's own click after a long press; the handler's
+  // programmatic click (for example opening the row menu) must pass.
   element.addEventListener('click', event => {
-    if (fired) { fired = false; event.preventDefault(); event.stopPropagation(); }
+    if (fired && event.isTrusted) { fired = false; event.preventDefault(); event.stopPropagation(); }
   }, true);
 }
 
