@@ -36,8 +36,9 @@ jobs:
           numbers=""
           for tag in $(git tag --list 'cloud-v*'); do
             [ "$tag" = "$GITHUB_REF_NAME" ] && continue
-            number="$(git show "$tag:cloud-release.config.json" 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).releaseNumber))}catch{}})')"
-            [ -n "$number" ] && numbers="$numbers,$number"
+            number="$(git show "$tag:cloud-release.config.json" 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const n=JSON.parse(s).releaseNumber;if(Number.isSafeInteger(n)&&n>0)process.stdout.write(String(n))}catch{}})')"
+            # Only plain positive integers reach GITHUB_ENV.
+            if printf '%s' "$number" | grep -Eqx '[1-9][0-9]{0,15}'; then numbers="$numbers,$number"; fi
           done
           echo "EARLIER_RELEASE_NUMBERS=${numbers#,}" >> "$GITHUB_ENV"
       - run: npm ci --no-audit --no-fund
