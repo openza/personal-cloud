@@ -4,7 +4,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createReleaseMetadata, serializeMetadata, signMetadata, validateConfig, verifyMetadata } from "../scripts/cloud-release.mjs";
+import { createReleaseMetadata, serializeMetadata, signMetadata, validateConfig, validateReleaseNumber, verifyMetadata } from "../scripts/cloud-release.mjs";
 
 const revision = "a".repeat(40);
 async function fixture(version = "0.1.0-preview.11") {
@@ -61,6 +61,13 @@ test("signatures verify only for the exact bytes and the matching public key", (
 test("only ECDSA P-256 keys can sign releases", () => {
   const { privateKey } = generateKeyPairSync("ed25519");
   assert.throws(() => signMetadata(Buffer.from("x"), privateKey.export({ type: "pkcs8", format: "pem" })), /P-256/);
+});
+
+test("release numbers must increase across releases", () => {
+  assert.doesNotThrow(() => validateReleaseNumber(11, []));
+  assert.doesNotThrow(() => validateReleaseNumber(12, [10, 11]));
+  assert.throws(() => validateReleaseNumber(11, [11]), /greater/);
+  assert.throws(() => validateReleaseNumber(10, [11]), /greater/);
 });
 
 test("the committed release config is valid", async () => {

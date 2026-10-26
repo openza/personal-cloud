@@ -1,9 +1,9 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
+import {mkdir,mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
 import {spawnSync} from 'node:child_process';
 test('derived FIFO day report retains the original prefix and includes edit-triggered reads',async()=>{
- const dir=await mkdtemp('artifacts/budget-report-unit-');
+ await mkdir('artifacts',{recursive:true});const dir=await mkdtemp('artifacts/budget-report-unit-');
  try{
   const totals={first_upload:{requests:1,envelopes:1,rowsRead:3,rowsWritten:10},
    existing_backlog:{requests:1801,envelopes:1801,rowsRead:1801,rowsWritten:36020},

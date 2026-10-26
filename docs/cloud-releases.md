@@ -86,10 +86,22 @@ artifact for unreleased testing.
    cloud and the new Desktop against the previous cloud release before a cloud
    release is published.
 
+## One-time repository setup (maintainer)
+
+1. Create the `cloud-release` environment in the repository settings, allow
+   deployments only from tags matching `cloud-v*`, and require the
+   maintainer's review.
+2. Store the PKCS#8 PEM private key as the environment secret
+   `CLOUD_RELEASE_SIGNING_KEY` (never as a repository-wide secret). Keep an
+   offline backup; Desktop's embedded public key (`PersonalCloudReleaseKeys`)
+   must change in a Desktop release before a new key can sign.
+
 ## Publishing a cloud release (maintainer)
 
 1. Merge the cloud change with `cloud-release.config.json` updated (next
-   `releaseNumber`, and `minDesktopVersion` only if rule 4 applies).
+   `releaseNumber`, and `minDesktopVersion` only if rule 4 applies). The
+   workflow refuses a number that is not greater than every earlier
+   `cloud-v*` tag's number.
 2. Push the tag `cloud-v<artifactVersion>` on that commit. The `Release`
    workflow tests, builds, signs and creates a **draft** GitHub Release.
 3. Review the draft (version, release number, minimum Desktop, assets), then

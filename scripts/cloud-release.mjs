@@ -16,6 +16,14 @@ export function validateConfig(config) {
   return config;
 }
 
+// Release numbers order releases for Desktop, so each must exceed every earlier
+// release's number (taken from the config at each other cloud-v* tag).
+export function validateReleaseNumber(releaseNumber, earlierNumbers) {
+  const highest = Math.max(0, ...earlierNumbers);
+  if (earlierNumbers.includes(releaseNumber) || releaseNumber <= highest)
+    throw new Error(`releaseNumber ${releaseNumber} must be greater than every earlier release (highest ${highest}).`);
+}
+
 export async function createReleaseMetadata({ artifactVersion, artifactDirectory, archivePath, config, sourceRevision }) {
   if (!versionPattern.test(artifactVersion ?? "") || artifactVersion.length > 128) throw new Error("Invalid artifact version.");
   if (!/^[a-f0-9]{40}$/.test(sourceRevision ?? "")) throw new Error("A full 40-character source revision is required.");
@@ -61,6 +69,10 @@ async function main([artifactVersion, artifactDirectory, archivePath, outputDire
   const privateKey = process.env.CLOUD_RELEASE_SIGNING_KEY;
   if (!privateKey) throw new Error("CLOUD_RELEASE_SIGNING_KEY is not set.");
   const config = JSON.parse(await readFile(new URL("../cloud-release.config.json", import.meta.url), "utf8"));
+  validateConfig(config);
+  const earlier = (process.env.EARLIER_RELEASE_NUMBERS ?? "").split(",").filter(Boolean).map(Number);
+  if (earlier.some(value => !Number.isSafeInteger(value))) throw new Error("EARLIER_RELEASE_NUMBERS must be integers.");
+  validateReleaseNumber(config.releaseNumber, earlier);
   const metadata = await createReleaseMetadata({ artifactVersion, artifactDirectory, archivePath, config, sourceRevision: process.env.GITHUB_SHA });
   const bytes = serializeMetadata(metadata);
   await writeFile(join(outputDirectory, "cloud-release.json"), bytes);

@@ -19,6 +19,8 @@ jobs:
     environment: cloud-release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
@@ -29,6 +31,15 @@ jobs:
             echo "Tag $GITHUB_REF_NAME is not cloud-v<version>." >&2; exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Collect earlier release numbers
+        run: |
+          numbers=""
+          for tag in $(git tag --list 'cloud-v*'); do
+            [ "$tag" = "$GITHUB_REF_NAME" ] && continue
+            number="$(git show "$tag:cloud-release.config.json" 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).releaseNumber))}catch{}})')"
+            [ -n "$number" ] && numbers="$numbers,$number"
+          done
+          echo "EARLIER_RELEASE_NUMBERS=${numbers#,}" >> "$GITHUB_ENV"
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test -- --maxWorkers=2
