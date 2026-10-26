@@ -80,8 +80,12 @@ artifact for unreleased testing.
    `schemaVersion` values are accepted; known capabilities are still checked
    exactly for the values Desktop relies on.
 4. **Breaking changes raise `minDesktopVersion`.** Older Desktops then refuse
-   to install that release and say why; they keep syncing with the cloud they
-   already have.
+   to install that release and say why. The Worker also reports the value in
+   `/health` as the `desktopCompatibility` capability (`protocolVersion` 1,
+   `minDesktopVersion`), so an older Desktop stops syncing safely if another
+   computer installs that release. Desktops before 1.3.0 do not read it; a
+   change that must also stop them has to change a value they check exactly,
+   such as `protocolVersion`.
 5. **Mixed-version tests** cover the previous Desktop release against the new
    cloud and the new Desktop against the previous cloud release before a cloud
    release is published.

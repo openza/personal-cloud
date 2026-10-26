@@ -1,3 +1,4 @@
+import releaseConfig from "../cloud-release.config.json";
 import {dailyQuotaError,DailyQuotaError} from "./daily-quota.ts";
 import {workspaceCapability,providerCatalogCapability} from "./workspace-protocol.ts";
 import {fanoutBudgetCapability,parseFanoutBound} from './fanout-budget.ts';
@@ -75,6 +76,10 @@ const statusByCode: Record<string, number> = {
   internal_error: 500,
 };
 
+// Lets every Desktop that reads /health refuse a cloud it is too old for; see
+// docs/cloud-releases.md. The value comes from the release that built this Worker.
+const desktopCompatibilityCapability = { protocolVersion: 1, minDesktopVersion: releaseConfig.minDesktopVersion };
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
@@ -97,7 +102,7 @@ export default {
         if (url.search !== "") throw new ContractError("invalid_request", "Health does not accept query parameters.");
         if (!await schemaReady(env.DB)) throw new ContractError("schema_not_ready", "Personal Cloud is not ready. Retry after setup or update completes.");
         return noStoreJson({ status: "ok", protocolVersion: 1, product: "tasks", artifactVersion: env.ARTIFACT_VERSION,
-          schemaVersion: 26, capabilities: { mutationBatch: mutationBatchCapability, workspace:workspaceCapability,providerCatalog:providerCatalogCapability,workspacePaging:workspacePagingCapability,fanoutBudget:fanoutBudgetCapability,catchupStatus:catchupStatusCapability,webPendingRecovery:webPendingRecoveryCapability } });
+          schemaVersion: 26, capabilities: { mutationBatch: mutationBatchCapability, workspace:workspaceCapability,providerCatalog:providerCatalogCapability,workspacePaging:workspacePagingCapability,fanoutBudget:fanoutBudgetCapability,catchupStatus:catchupStatusCapability,desktopCompatibility:desktopCompatibilityCapability,webPendingRecovery:webPendingRecoveryCapability } });
       }
       if (request.method === "GET" && url.pathname === "/auth/status") {
         return noStoreJson(await authStatus(env.DB));

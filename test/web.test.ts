@@ -18,7 +18,7 @@ describe.sequential("Web current-data and semantic-mutation proof", () => {
       product: "tasks",
       artifactVersion: "0.0.0-test",
       schemaVersion: 26,
-      capabilities:{mutationBatch:{protocolVersion:1,path:"/v1/tasks/mutations/batch",maxMutations:2,maxRequestUtf8Bytes:16384},workspace:{protocolVersion:1,path:"/v1/tasks/mutations",schemaVersion:26},providerCatalog:{protocolVersion:2,path:"/v1/provider/catalog",intentsPath:"/v1/provider/intents"},workspacePaging:{protocolVersion:1,bootstrapPath:"/sync/bootstrap",changesPath:"/sync/changes",maxResponseUtf8Bytes:2097152,maxPageRecords:100},fanoutBudget:{protocolVersion:1,requestHeader:'x-openza-fanout-bound'},catchupStatus:{protocolVersion:1,path:'/sync/catchup-status',staleAfterSeconds:900},webPendingRecovery:{protocolVersion:1,path:'/auth/web-pending-change'}},
+      capabilities:{mutationBatch:{protocolVersion:1,path:"/v1/tasks/mutations/batch",maxMutations:2,maxRequestUtf8Bytes:16384},workspace:{protocolVersion:1,path:"/v1/tasks/mutations",schemaVersion:26},providerCatalog:{protocolVersion:2,path:"/v1/provider/catalog",intentsPath:"/v1/provider/intents"},workspacePaging:{protocolVersion:1,bootstrapPath:"/sync/bootstrap",changesPath:"/sync/changes",maxResponseUtf8Bytes:2097152,maxPageRecords:100},fanoutBudget:{protocolVersion:1,requestHeader:'x-openza-fanout-bound'},catchupStatus:{protocolVersion:1,path:'/sync/catchup-status',staleAfterSeconds:900},webPendingRecovery:{protocolVersion:1,path:'/auth/web-pending-change'},desktopCompatibility:{protocolVersion:1,minDesktopVersion:'1.3.0'}},
     });
   });
 
