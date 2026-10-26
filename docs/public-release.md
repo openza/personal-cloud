@@ -1,6 +1,6 @@
 # Public release preparation
 
-Personal Cloud ships with Openza Tasks. Openza does not operate a shared task-hosting service: each owner provisions a Worker and D1 database in their own Cloudflare account. The project website and OAuth publisher domain identify Openza; they do not replace the owner's cloud address.
+Personal Cloud ships as [signed cloud releases](cloud-releases.md), separate from Openza Tasks releases; Openza Desktop downloads, verifies and installs them. Earlier releases bundled one cloud artifact inside each Desktop build, as the historical sections below describe. Openza does not operate a shared task-hosting service: each owner provisions a Worker and D1 database in their own Cloudflare account. The project website and OAuth publisher domain identify Openza; they do not replace the owner's cloud address.
 
 ## Current source and packaging evidence
 
