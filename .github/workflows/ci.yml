@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test -- --maxWorkers=2
+      - run: npm run test:web
+      - run: npm run test:quota
+      - run: npm run test:migrations
+      - run: npm run test:release
+      - run: npm run test:restore
+      - run: npm run test:rebootstrap
+      - name: Build artifact
+        run: npm run build:artifact -- 0.0.0-ci

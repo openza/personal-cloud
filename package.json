@@ -14,7 +14,8 @@
     "test:d1-limits": "node --test test-node/d1-limits.test.mjs",
     "test:migrations": "node --test test-node/workspace-upgrade.test.mjs",
     "test:quota": "node --test test-node/quota-pause.test.mjs test-node/quota-view.test.mjs test-node/snapshot-poll.test.mjs test-node/budget-report.test.mjs test-node/fanout-budget.test.mjs test-node/fanout-draft.test.mjs test-node/pending-web-recovery.test.mjs",
-    "measure:budget": "node scripts/measure-budget.mjs"
+    "measure:budget": "node scripts/measure-budget.mjs",
+    "test:release": "node --test test-node/cloud-release.test.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.1.8",

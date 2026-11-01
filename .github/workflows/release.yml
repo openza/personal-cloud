@@ -1,0 +1,69 @@
+name: Release
+
+# Builds, tests and signs a Personal Cloud release as a draft GitHub Release.
+# A maintainer reviews and publishes the draft; see docs/cloud-releases.md.
+on:
+  push:
+    tags: ['cloud-v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cloud-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: cloud-release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Resolve version
+        run: |
+          version="${GITHUB_REF_NAME#cloud-v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "Tag $GITHUB_REF_NAME is not cloud-v<version>." >&2; exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Collect earlier release numbers
+        run: |
+          numbers=""
+          for tag in $(git tag --list 'cloud-v*'); do
+            [ "$tag" = "$GITHUB_REF_NAME" ] && continue
+            number="$(git show "$tag:cloud-release.config.json" 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const n=JSON.parse(s).releaseNumber;if(Number.isSafeInteger(n)&&n>0)process.stdout.write(String(n))}catch{}})')"
+            # Only plain positive integers reach GITHUB_ENV.
+            if printf '%s' "$number" | grep -Eqx '[1-9][0-9]{0,15}'; then numbers="$numbers,$number"; fi
+          done
+          echo "EARLIER_RELEASE_NUMBERS=${numbers#,}" >> "$GITHUB_ENV"
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test -- --maxWorkers=2
+      - run: npm run test:web
+      - run: npm run test:quota
+      - run: npm run test:migrations
+      - run: npm run test:release
+      - run: npm run test:restore
+      - run: npm run test:rebootstrap
+      - name: Build artifact
+        run: npm run build:artifact -- "$VERSION"
+      - name: Package and sign
+        env:
+          CLOUD_RELEASE_SIGNING_KEY: ${{ secrets.CLOUD_RELEASE_SIGNING_KEY }}
+        run: |
+          mkdir -p release
+          (cd "dist/openza-personal-cloud-$VERSION" && zip -X -r -q "../../release/openza-personal-cloud-$VERSION.zip" .)
+          node scripts/cloud-release.mjs "$VERSION" "dist/openza-personal-cloud-$VERSION" "release/openza-personal-cloud-$VERSION.zip" release
+          cat release/cloud-release.json
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* --draft --verify-tag \
+            --title "Personal Cloud $VERSION" \
+            --notes "Signed Personal Cloud release $VERSION. Install it from Openza Desktop: Personal Cloud → Manage → Update. See docs/cloud-releases.md."

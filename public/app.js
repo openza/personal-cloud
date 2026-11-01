@@ -12,7 +12,7 @@ import { providerDeliveryLabel } from "./provider-status.js?v=bridge-1";
 import { ALL_SPACES, resolveSpace, creationSpace, queryTasks, matchesView, taskComparator,projectComparator, visibleProjects, groupTasks, localDate, plannedEdit, searchWorkspace } from "./workspace-query.js?v=parity-1";
 import { createInitialStatusMonitor, initialEmptyState } from "./initial-sync-status.js?v=initial-1";
 import { workbenchLayout } from "./workbench-layout.js?v=desktop-parity-2";
-import { PHONE_QUERY, phoneTabFor, quickAddDefaults, quickAddContext, installCardState, createBackStack, bindLongPress, keyboardInset } from "./phone-shell.js?v=mobile-1";
+import { PHONE_QUERY, phoneTabFor, quickAddDefaults, quickAddContext, installCardState, createBackStack, bindLongPress, keyboardInset, offerInstall } from "./phone-shell.js?v=mobile-2";
 import { taskSortCopy, taskCopyText, taskTextError, uniqueLabelNames, taskRowPresentation, taskSaveError } from "./task-presentation.js?v=parity-3";
 import { createDetailAutosave } from "./detail-autosave.js?v=parity-3";
 const initialStatusMonitor=createInitialStatusMonitor({read:signal=>api("/sync/initial-status",{signal}),render:renderInitialStatus});
@@ -390,7 +390,7 @@ function bindPhoneEvents(){
   $("#quick-add-more").addEventListener("click",quickAddMoreFields);
   $("#quick-add-dialog").addEventListener("click",event=>{if(event.target===event.currentTarget&&!$("#quick-add-submit").disabled)event.currentTarget.close();});
   $("#install-card-dismiss").addEventListener("click",()=>{try{localStorage.setItem(installDismissKey,"1");}catch{}renderInstallCard();});
-  $("#install-card-action").addEventListener("click",async()=>{const prompt=installPrompt;if(!prompt)return;installPrompt=null;try{await prompt.prompt();await prompt.userChoice;}catch{}renderInstallCard();});
+  $("#install-card-action").addEventListener("click",async()=>{const deferred=installPrompt;if(!deferred)return;installPrompt=null;await offerInstall(deferred);renderInstallCard();});
   window.addEventListener("beforeinstallprompt",event=>{event.preventDefault();installPrompt=event;renderInstallCard();});
   window.addEventListener("appinstalled",()=>{installPrompt=null;renderInstallCard();});
   phoneMedia.addEventListener("change",()=>{if(!isPhone())tasksPanel.classList.remove("mobile-navigation-open","phone-options-open");else for(const layer of phoneLayers)if(layer.isOpen())backStack.opened(layer.name,{close:layer.close});updateWorkbenchLayout();renderPhoneChrome();});

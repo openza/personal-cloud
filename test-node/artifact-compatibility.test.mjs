@@ -15,12 +15,18 @@ test('emitted Web transport and mutation modules cancel queued work without borr
  const {createOwnerApi}=await import(pathToFileURL(path.resolve(directory,'assets/owner-api.js')));
  const {createMutationSender}=await import(pathToFileURL(path.resolve(directory,'assets/mutation-queue.js')));
  let generation=0,csrf='old',release,requests=0;
- const storage=new Map(),locks={request:(name,action)=>name==='openza-owner-session-write'?new Promise(resolve=>release=()=>resolve(action())):action()};
+ let locked;
+ const lockEntered=new Promise(resolve=>locked=resolve);
+ const storage=new Map(),locks={request:(name,action)=>name==='openza-owner-session-write'?new Promise((resolve,reject)=>{
+  release=()=>Promise.resolve().then(action).then(resolve,reject);locked();
+ }):action()};
  const api=createOwnerApi({fetch:async()=>requests++,locks,getGeneration:()=>generation,getCsrf:()=>csrf,setCsrf:value=>csrf=value});
  const sender=createMutationSender({storage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},
   locks,getGeneration:()=>generation,sequenceKey:'emitted',makeId:()=> 'synthetic_mutation',now:()=>new Date(0).toISOString(),send:body=>api('/v1/tasks/mutations',{method:'POST',csrf:true,body})});
- const pending=sender('synthetic','web','task',1,'task.delete',{});generation++;csrf='next';release();
- await assert.rejects(pending,error=>error.code==='session_changed'&&error.dispatched===false);
+ const pending=sender('synthetic','web','task',1,'task.delete',{});
+ const rejected=assert.rejects(pending,error=>error.code==='session_changed'&&error.dispatched===false);
+ await lockEntered;generation++;csrf='next';release();
+ await rejected;
  assert.equal(requests,0);assert.equal(storage.size,0);assert.equal(csrf,'next');
 });
 test('format1 artifact retains the exact Desktop fields, ordered migrations and verified source files',enabled,async()=>{
