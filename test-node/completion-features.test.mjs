@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import {taskSortCopy,taskCopyText,taskTextError,uniqueLabelNames} from '../public/task-presentation.js';
 import {visibleProjects,taskComparator} from '../public/workspace-query.js';
 const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8');
-const extract=(context,name)=>vm.runInContext(source.match(new RegExp(`^(?:async )?function ${name}\\(.*$`,'m'))[0],context);
+const extract=(context,name)=>{context.recoveryAcknowledgmentPending??=false;return vm.runInContext(source.match(new RegExp(`^(?:async )?function ${name}\\(.*$`,'m'))[0],context);};
 
 test('created sort labels describe retained newest-first/default and oldest-first/reverse ordering',()=>{
  const tasks=[{createdAt:'2026-01-01',title:'Old'},{createdAt:'2026-02-01',title:'New'}];assert.equal(tasks.toSorted(taskComparator('created','default'))[0].title,'New');assert.equal(taskSortCopy('created','default','Created').summary,'Sort: Newest first');assert.equal(tasks.toSorted(taskComparator('created','reverse'))[0].title,'Old');assert.equal(taskSortCopy('created','reverse','Created').summary,'Sort: Oldest first');assert.equal(taskSortCopy('priority','reverse','Priority').summary,'Sort: Priority Desc');
