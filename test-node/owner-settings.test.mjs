@@ -11,6 +11,7 @@ function setupHarness({recoveryCode='openza-test-recovery-code',copyFails=false,
   recoveryResult.hidden=true;
   const context=vm.createContext({recoveryResult,authPanel,setupForm,authCopy,csrfToken:null,$:()=>element(),document:{createElement:element},navigator:{credentials:{create:async()=>({})},clipboard:{writeText:async value=>{if(copyFails)throw Error('denied');copied.push(value);}}},registrationOptions:x=>x,registrationCredential:x=>x,api:async path=>{calls.push(path);if(path.endsWith('/begin'))return{challenge:'challenge'};if(finishFails)throw Error('setup failed');return{csrfToken:'csrf',recoveryCode};},showSignedIn:()=>signedIn++,showAuthError:message=>errors.push(message)});
   context.recoveryAcknowledgmentPending=false;
+  context.scheduleSessionRotation=()=>{};
   for(const name of ['setupOwner','runAuth'])vm.runInContext(appSource.match(new RegExp('^async function '+name+'\\(.*$','m'))[0],context);
   vm.runInContext(appSource.match(/^function showOneTimeSecret\([^]*?^}/m)[0],context);
   return{context,recoveryResult,authPanel,setupForm,calls,copied,errors,signedIn:()=>signedIn,setup:()=>context.setupOwner({preventDefault(){}})};
@@ -27,6 +28,22 @@ test('bootstrap displays the returned recovery code and waits for explicit ackno
 test('clipboard failure keeps the code visible with a manual-copy fallback and does not continue',async()=>{
   const h=setupHarness({copyFails:true});await h.setup();await h.recoveryResult.children[2].listeners.click();
   assert.match(h.recoveryResult.children[3].textContent,/copy it manually/);assert.equal(h.recoveryResult.children[1].textContent,'openza-test-recovery-code');assert.equal(h.recoveryResult.hidden,false);assert.equal(h.signedIn(),0);
+});
+test('bootstrap renews the session while awaiting acknowledgment and Continue retains only one renewal timer',async()=>{
+  const h=setupHarness(),timers=new Map(),minute=60_000;let now=0,nextTimer=0,expiresAt=15*minute,rotations=0;
+  const bootstrapApi=h.context.api;
+  Object.assign(h.context,{sessionTimer:undefined,sessionRotationMs:10*minute,ownerSessionGeneration:0,rotationFailures:0,cloudBrake:{status:()=>null,rememberSignIn:async()=>{}},setTimeout:(callback,delay)=>{const id=++nextTimer;timers.set(id,{callback,at:now+delay});return id;},clearTimeout:id=>timers.delete(id),signOut:()=>assert.fail('session expired before acknowledgment'),api:async(path,options)=>{
+    if(path!=='/auth/session/rotate')return bootstrapApi(path,options);
+    assert.ok(now<expiresAt);assert.equal(options.csrf,true);rotations++;expiresAt=now+15*minute;return{csrfToken:`rotated-${rotations}`};
+  }});
+  for(const name of ['scheduleSessionRotation','renewActiveSession','rotateSession'])vm.runInContext(appSource.match(new RegExp('^(?:async )?function '+name+'\\(.*$','m'))[0],h.context);
+  const advance=async target=>{while(true){const entry=[...timers].sort((a,b)=>a[1].at-b[1].at)[0];if(!entry||entry[1].at>target)break;now=entry[1].at;timers.delete(entry[0]);await entry[1].callback();}now=target;};
+  await h.setup();assert.equal(timers.size,1);
+  await advance(26*minute);assert.equal(rotations,2);assert.equal(h.context.csrfToken,'rotated-2');assert.equal(h.context.recoveryAcknowledgmentPending,true);assert.equal(h.recoveryResult.hidden,false);assert.equal(h.signedIn(),0);assert.equal(timers.size,1);
+  Object.assign(h.context,{settingsRoute:false,tasksPanel:{hidden:true},document:{...h.context.document,body:{classList:{add(){}}}},initialStatusMonitor:{start(){}},initializeWorkspace:async()=>{}});
+  vm.runInContext(appSource.match(/^function showSignedIn\(.*$/m)[0],h.context);
+  h.recoveryResult.children[4].listeners.click();assert.equal(h.context.recoveryAcknowledgmentPending,false);assert.equal(h.context.tasksPanel.hidden,false);assert.equal(timers.size,1);
+  await advance(36*minute);assert.equal(rotations,3);assert.equal(timers.size,1);
 });
 for(const settingsRoute of [false,true])for(const metaKey of [false,true])test(`workspace shortcuts wait for recovery acknowledgment (settings=${settingsRoute}, meta=${metaKey})`,async()=>{
   const h=setupHarness(),actions=[];
