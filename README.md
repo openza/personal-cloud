@@ -2,6 +2,13 @@
 
 Openza Personal Cloud is the optional Web companion and sync service for Openza Tasks. It runs as one Cloudflare Worker with Static Assets and one D1 database in each user's own Cloudflare account. Desktop remains local-first and works offline. Tasks is the only product currently supported. This is a technical preview, not a general-availability release.
 
+**Preview describes Personal Cloud's maturity, not a required Snap channel.**
+Use the [Openza Tasks installation guidance](https://github.com/openza/tasks#download)
+for the current Linux release; Personal Cloud does not inherently require `edge`.
+Desktop 1.3.0 and later select compatible [signed cloud releases](docs/cloud-releases.md)
+for setup and updates. The Desktop channel and your deployed cloud version are
+separate; publishing either release does not update an owner's cloud automatically.
+
 Every synchronized row belongs to the same Openza `tasks` collection. A task may optionally retain a safe source descriptor after adoption, but Personal Cloud has no provider-task collection and Web has no provider connection or credential access. Provider credentials and provider API calls remain on capable desktop devices.
 
 ## Implemented
