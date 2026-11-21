@@ -21,7 +21,8 @@ describe.sequential("single-owner passkey identity", () => {
     expect(finish.status).toBe(200);
     const initialized = await json(finish) as any;
     expect(initialized.outcome).toBe("initialized");
-    expect(initialized.recoveryCode).toMatch(/^openza-/);
+    expect(initialized.recoveryCode).toMatch(/^openza-[A-Za-z0-9_-]{32}$/);
+    expect(finish.headers.get("cache-control")).toContain("no-store");
     expect(initialized.csrfToken).toBeTruthy();
     const firstCookie = cookie(finish);
     expect(firstCookie).toContain("Secure"); expect(firstCookie).toContain("HttpOnly"); expect(firstCookie).toContain("SameSite=Strict");
