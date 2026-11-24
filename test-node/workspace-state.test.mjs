@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import {taskTextError,taskSaveError} from "../public/task-presentation.js";
+import {plannedEdit} from "../public/workspace-query.js";
 
 const source = readFileSync(new URL("../public/app.js",import.meta.url),"utf8");
 const workspaceStateKey = "workspace";
@@ -91,6 +92,49 @@ for(const action of ["create","attach","remove"])test(`pending ${action} label s
 
 test("pending label never reopens a dialog closed with Escape or a different selected task",async()=>{
   for(const change of ["closed","different"]){const state=labelSetup(),pending=state.context.addNamedLabel();if(change==="closed")state.context.detailsDialog.open=false;else state.context.selectedTaskId="task_b";await state.resolve();state.refresh();await pending;assert.equal(state.opens(),0);assert.equal(state.context.detailLabelBusy,false);}
+});
+
+test('detail saves submit only edited fields and keep scheduled times out of Web mutation payloads',async()=>{
+ const {context,nodes}=setup();
+ const schedule={scheduledStart:'2026-10-13T09:00:00.000Z',scheduledEnd:'2026-10-13T10:30:00.000Z'};
+ const task={id:'task_scheduled',spaceId:'space_a',projectId:null,title:'Task',notes:'Original notes',workflowStatus:'inbox',priority:3,plannedOn:null,plannedAt:null,deadlineOn:null,deadlineAt:null,...schedule,completionState:'open',completedAt:null,entityVersion:1,source:null};
+ context.currentPayload={tasks:[task],projects:[],allProjects:[],spaces:[]};context.selectedTaskId=task.id;context.currentEditable=true;context.workspaceSupported=()=>true;context.ownerSessionGeneration=0;context.detailEditorGeneration=1;context.detailPendingSave=null;context.detailTaskUnavailable=false;context.detailAutosave={cancel(){}};context.plannedEdit=plannedEdit;context.setDialogBusy=()=>{};context.showDialogError=()=>{};context.finishMutations=async()=>true;
+ context.detailsDialog={open:true,close(){this.open=false;}};
+ for(const [id,value]of Object.entries({'details-title':task.title,'details-notes':task.notes,'details-status':task.workflowStatus,'details-priority':String(task.priority),'details-planned':'','details-deadline':'','details-space':task.spaceId,'details-project':''}))nodes.set(id,{value});
+ context.detailTaskBaseline={...task};context.detailBaseline=context.readDetailFields();
+ context.openDetails=()=>{const current=context.currentPayload.tasks[0];context.detailTaskBaseline={...current};for(const [id,value]of Object.entries({'details-title':current.title,'details-notes':current.notes||'','details-status':current.workflowStatus,'details-priority':String(current.priority),'details-planned':current.plannedOn||'','details-deadline':current.deadlineOn||'','details-space':current.spaceId,'details-project':current.projectId||''}))nodes.get(id).value=value;context.detailBaseline=context.readDetailFields();};
+ const calls=[];
+ context.sendMutation=async(_id,baseEntityVersion,operation,payload)=>{calls.push({operation,payload});const current=context.currentPayload.tasks[0],next={...current,...(operation==='task.moveTree'?{spaceId:payload.spaceId}:{}),...(payload.fields||{})};if(operation==='task.complete'){next.completionState='completed';next.completedAt=payload.completedAt;}if(operation==='task.reopen'){next.completionState='open';next.completedAt=null;}next.entityVersion=baseEntityVersion+1;context.currentPayload.tasks[0]=next;return{entityVersion:next.entityVersion};};
+ for(const name of ['saveTask','toggleCompletion'])vm.runInContext(source.match(new RegExp(`^(?:async )?function ${name}\\(.*$`,'m'))[0],context);
+ const edits=[
+  ['details-title','Edited title',{title:'Edited title'}],
+  ['details-notes','Edited notes',{notes:'Edited notes'}],
+  ['details-notes','',{notes:null}],
+  ['details-status','next',{workflowStatus:'next'}],
+  ['details-status','none',{workflowStatus:'none'}],
+  ['details-priority','1',{priority:1}],
+  ['details-planned','2026-10-15',{plannedOn:'2026-10-15'}],
+  ['details-planned','',{plannedOn:null}],
+  ['details-deadline','2026-10-21',{deadlineOn:'2026-10-21'}],
+  ['details-deadline','',{deadlineOn:null}],
+  ['details-project','project_source',{projectId:'project_source'}],
+  ['details-project','',{projectId:null}],
+ ];
+ for(const [id,value,fields]of edits){
+  context.detailsDialog.open=true;nodes.get(id).value=value;
+  assert.equal(await context.saveTask({preventDefault(){}}),true);
+  assert.equal(calls.at(-1).operation,'task.patch');assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1).payload)),{fields});
+  const current=context.currentPayload.tasks[0];for(const [field,expected]of Object.entries(fields))assert.equal(current[field],expected);
+  assert.equal(current.scheduledStart,schedule.scheduledStart);assert.equal(current.scheduledEnd,schedule.scheduledEnd);
+ }
+ context.detailsDialog.open=true;
+ for(const [id,value]of Object.entries({'details-title':'Moved task','details-notes':'Edited during move','details-status':'waiting','details-priority':'2','details-planned':'2026-11-01','details-deadline':'2026-11-05','details-space':'space_b','details-project':'project_target'}))nodes.get(id).value=value;
+ assert.equal(await context.saveTask({preventDefault(){}}),true);assert.equal(calls.at(-1).operation,'task.moveTree');
+ assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1).payload)),{spaceId:'space_b',fields:{title:'Moved task',notes:'Edited during move',workflowStatus:'waiting',priority:2,plannedOn:'2026-11-01',deadlineOn:'2026-11-05',projectId:'project_target'}});
+ const moved=context.currentPayload.tasks[0];assert.equal(moved.spaceId,'space_b');assert.equal(moved.title,'Moved task');assert.equal(moved.notes,'Edited during move');assert.equal(moved.workflowStatus,'waiting');assert.equal(moved.priority,2);assert.equal(moved.plannedOn,'2026-11-01');assert.equal(moved.deadlineOn,'2026-11-05');assert.equal(moved.projectId,'project_target');assert.equal(moved.scheduledStart,schedule.scheduledStart);assert.equal(moved.scheduledEnd,schedule.scheduledEnd);
+ context.completionInFlight=new Set();context.refreshCompletionButtons=()=>{};
+ await context.toggleCompletion(moved);assert.equal(calls.at(-1).operation,'task.complete');assert.deepEqual(Object.keys(calls.at(-1).payload),['completedAt']);assert.equal(context.currentPayload.tasks[0].completionState,'completed');assert.equal(context.currentPayload.tasks[0].scheduledStart,schedule.scheduledStart);assert.equal(context.currentPayload.tasks[0].scheduledEnd,schedule.scheduledEnd);
+ await context.toggleCompletion(context.currentPayload.tasks[0]);assert.equal(calls.at(-1).operation,'task.reopen');assert.deepEqual(Object.keys(calls.at(-1).payload),['reopenedAt']);assert.equal(context.currentPayload.tasks[0].completionState,'open');assert.equal(context.currentPayload.tasks[0].scheduledStart,schedule.scheduledStart);assert.equal(context.currentPayload.tasks[0].scheduledEnd,schedule.scheduledEnd);
 });
 
 test("label failure releases its lock and retains stale read-only controls",async()=>{

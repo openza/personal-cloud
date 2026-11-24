@@ -3,6 +3,8 @@ import { expect, it } from "vitest";
 
 const taskId = "task.web.scheduled-times";
 const targetSpaceId = "space.web.scheduled-times";
+const sourceProjectId = "project.web.scheduled-times.source";
+const targetProjectId = "project.web.scheduled-times.target";
 const createdAt = "2026-10-13T00:00:00.000Z";
 const scheduledStart = "2026-10-13T09:00:00.000Z";
 const scheduledEnd = "2026-10-13T10:30:00.000Z";
@@ -47,6 +49,23 @@ async function expectTask(fields: Record<string, unknown>) {
   });
 }
 
+function project(spaceId: string) {
+  return {
+    project: {
+      spaceId,
+      name: "Scheduled project",
+      description: null,
+      color: null,
+      icon: null,
+      parentId: null,
+      sortOrder: 0,
+      status: "active",
+      isFavorite: false,
+      createdAt,
+    },
+  };
+}
+
 it("keeps both scheduled times through Web edits, a Space move, completion, and reopening", async () => {
   expect((await post(mutation("space.put", targetSpaceId, null, {
     space: {
@@ -59,6 +78,9 @@ it("keeps both scheduled times through Web edits, a Space move, completion, and 
     },
   }))).status).toBe(201);
 
+  expect((await post(mutation("project.put", sourceProjectId, null, project("space_default")))).status).toBe(201);
+  expect((await post(mutation("project.put", targetProjectId, null, project(targetSpaceId)))).status).toBe(201);
+
   expect((await post(mutation("task.createRich", taskId, null, {
     task: {
       id: taskId,
@@ -68,9 +90,9 @@ it("keeps both scheduled times through Web edits, a Space move, completion, and 
       priority: 3,
       createdAt,
       notes: null,
-      plannedOn: null,
+      plannedOn: "2026-10-14",
       plannedAt: null,
-      deadlineOn: null,
+      deadlineOn: "2026-10-20",
       deadlineAt: null,
       scheduledStart,
       scheduledEnd,
@@ -80,26 +102,52 @@ it("keeps both scheduled times through Web edits, a Space move, completion, and 
       labels: [],
     },
   }))).status).toBe(201);
-  await expectTask({ title: "Scheduled task", spaceId: "space_default", completionState: "open" });
+  let entityVersion = 1;
+  const patches = [
+    [{ title: "Edited scheduled task" }, { title: "Edited scheduled task" }],
+    [{ notes: "Edited notes" }, { notes: "Edited notes" }],
+    [{ notes: null }, { notes: null }],
+    [{ workflowStatus: "waiting" }, { workflowStatus: "waiting" }],
+    [{ workflowStatus: "none" }, { workflowStatus: "none" }],
+    [{ priority: 1 }, { priority: 1 }],
+    [{ plannedOn: "2026-10-15" }, { plannedOn: "2026-10-15", plannedAt: null }],
+    [{ deadlineOn: "2026-10-21" }, { deadlineOn: "2026-10-21", deadlineAt: null }],
+    [{ projectId: sourceProjectId }, { projectId: sourceProjectId }],
+    [{ plannedOn: null }, { plannedOn: null, plannedAt: null }],
+    [{ deadlineOn: null }, { deadlineOn: null, deadlineAt: null }],
+    [{ projectId: null }, { projectId: null }],
+  ] as const;
+  for (const [fields, expected] of patches) {
+    expect((await post(mutation("task.patch", taskId, entityVersion, { fields }))).status).toBe(201);
+    entityVersion++;
+    await expectTask({ spaceId: "space_default", completionState: "open", ...expected });
+  }
 
-  expect((await post(mutation("task.patch", taskId, 1, {
-    fields: { title: "Edited scheduled task" },
-  }))).status).toBe(201);
-  await expectTask({ title: "Edited scheduled task", spaceId: "space_default", completionState: "open" });
-
-  expect((await post(mutation("task.moveTree", taskId, 2, {
+  const movedFields = {
+    title: "Moved scheduled task",
+    notes: "Updated while moving",
+    workflowStatus: "next",
+    priority: 2,
+    plannedOn: "2026-11-01",
+    deadlineOn: "2026-11-05",
+    projectId: targetProjectId,
+  };
+  expect((await post(mutation("task.moveTree", taskId, entityVersion, {
     spaceId: targetSpaceId,
-    fields: {},
+    fields: movedFields,
   }))).status).toBe(201);
-  await expectTask({ title: "Edited scheduled task", spaceId: targetSpaceId, completionState: "open" });
+  entityVersion++;
+  await expectTask({ ...movedFields, spaceId: targetSpaceId, completionState: "open" });
 
-  expect((await post(mutation("task.complete", taskId, 3, {
+  expect((await post(mutation("task.complete", taskId, entityVersion, {
     completedAt: "2026-10-13T11:00:00.000Z",
   }))).status).toBe(201);
+  entityVersion++;
   await expectTask({ spaceId: targetSpaceId, completionState: "completed" });
 
-  expect((await post(mutation("task.reopen", taskId, 4, {
+  expect((await post(mutation("task.reopen", taskId, entityVersion, {
     reopenedAt: "2026-10-13T11:10:00.000Z",
   }))).status).toBe(201);
+  entityVersion++;
   await expectTask({ spaceId: targetSpaceId, completionState: "open", completedAt: null });
 });
