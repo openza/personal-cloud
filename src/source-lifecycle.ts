@@ -3,11 +3,13 @@ import {
   ContractError,
   canonicalize,
   computeCanonicalHash,
+  type ExternalCommandCancelMutation,
   type ExternalCommandResultMutation,
   type SourceRefreshMutation,
 } from "./protocol.ts";
 import { duplicateOrReuse, findReceipt, toReceipt, type Receipt } from "./mutation-receipt.ts";
 import { ownedClaim } from "./provider-delivery.ts";
+import { arraySql, taskRecordJson } from "./workspace-records.ts";
 
 type TaskRow = { entity_version: number; deleted_at?: string|null };
 type SourceRow = { integration_kind: string; external_id_hash: string; refreshed_at: string };
@@ -146,6 +148,83 @@ export async function applyExternalCommandResult(
   return requireAcceptedReceipt(db, mutation.mutationId);
 }
 
+export async function applyExternalCommandCancel(
+  db: D1Database,
+  mutation: ExternalCommandCancelMutation,
+  rawRequest: string,
+  now: () => Date = () => new Date(),
+): Promise<Receipt> {
+  const duplicate = await findDuplicate(db, mutation.mutationId, rawRequest);
+  if (duplicate) return duplicate;
+  await requireNextSequence(db, mutation.deviceId, mutation.deviceSequence);
+  const task = await db.prepare("SELECT entity_version FROM tasks WHERE id=?1 AND deleted_at IS NULL")
+    .bind(mutation.entityId).first<TaskRow>();
+  if (!task) throw new ContractError("entity_not_found", "The Openza task does not exist.");
+  const command = await db.prepare("SELECT command,state,requested_change_seq FROM external_commands WHERE task_id=?1")
+    .bind(mutation.entityId).first<CommandRow>();
+  if (!command) throw new ContractError("command_not_found", "The Openza task has no provider command.");
+  if (command.requested_change_seq !== mutation.payload.requestedChangeSeq)
+    throw new ContractError("command_superseded", "The provider command was superseded by newer Openza intent.");
+  if (command.state !== "pending_desktop" && command.state !== "cancelled")
+    throw new ContractError("invalid_transition", "Only a pending provider command can be cancelled.");
+  const started = await db.prepare(`SELECT 1 FROM provider_delivery_claims
+    WHERE task_id=?1 AND requested_change_seq=?2 AND state='started'`)
+    .bind(mutation.entityId, mutation.payload.requestedChangeSeq).first();
+  if (started) throw new ContractError("command_busy", "A provider command already started and cannot be cancelled.");
+
+  const acceptedAt = now().toISOString();
+  const canonicalRequest = canonicalize(rawRequest);
+  const canonicalHash = await computeCanonicalHash(rawRequest);
+  try {
+    await db.batch([
+      deviceClaim(db, mutation.deviceId, mutation.deviceSequence, mutation.mutationId),
+      db.prepare(`INSERT INTO workspace_guards(id,valid)
+        SELECT ?1,CASE WHEN EXISTS(SELECT 1 FROM external_commands c WHERE c.task_id=?2
+          AND c.requested_change_seq=?3 AND c.state IN ('pending_desktop','cancelled'))
+          AND NOT EXISTS(SELECT 1 FROM provider_delivery_claims p WHERE p.task_id=?2
+            AND p.requested_change_seq=?3 AND p.state='started') THEN 1 ELSE 0 END`)
+        .bind(mutation.mutationId, mutation.entityId, mutation.payload.requestedChangeSeq),
+      db.prepare(`UPDATE provider_delivery_claims SET state='cancelled',resolved_at=?1
+        WHERE task_id=?2 AND requested_change_seq=?3 AND state='reserved'`)
+        .bind(acceptedAt, mutation.entityId, mutation.payload.requestedChangeSeq),
+      db.prepare(`UPDATE external_commands SET state='cancelled',updated_at=?1,error_code=?2
+        WHERE task_id=?3 AND requested_change_seq=?4 AND state='pending_desktop'`)
+        .bind(acceptedAt, mutation.payload.reason, mutation.entityId, mutation.payload.requestedChangeSeq),
+      db.prepare(`INSERT INTO changes(change_seq,protocol_version,product,mutation_id,operation,entity_kind,
+        entity_id,entity_version,payload_json,server_accepted_at)
+        SELECT cs.next_change_seq+1,1,'tasks',?1,'workspace.changed','workspace',t.id,t.entity_version,
+          json_object('spaces',json('[]'),'projects',json('[]'),'tasks',json(${arraySql('tasks t', taskRecordJson(), 't.id=?5')}),
+            'scopes',json('[]'),'catalog',json('[]'),'intents',json('[]'),'routes',json('[]')) ,?3
+        FROM cloud_state cs JOIN tasks t ON t.id=?2 JOIN external_commands c ON c.task_id=t.id
+        WHERE cs.singleton=1 AND c.requested_change_seq=?4 AND c.state='cancelled'`)
+        .bind(mutation.mutationId, mutation.entityId, acceptedAt, mutation.payload.requestedChangeSeq, mutation.entityId),
+      insertReceipt(db, mutation, canonicalRequest, canonicalHash, acceptedAt),
+      advanceCloudState(db, mutation.mutationId),
+      advanceDevice(db, mutation.deviceId, mutation.deviceSequence),
+    ]);
+  } catch (error) {
+    throwDailyQuota(error);
+    const raced = await findReceipt(db, mutation.mutationId);
+    if (raced) return duplicateOrReuse(raced, canonicalHash);
+    const latest = await db.prepare("SELECT state,requested_change_seq FROM external_commands WHERE task_id=?1")
+      .bind(mutation.entityId).first<{ state: string; requested_change_seq: number }>();
+    if (latest?.requested_change_seq !== mutation.payload.requestedChangeSeq)
+      throw new ContractError("command_superseded", "The provider command was superseded by newer Openza intent.");
+    const started = await db.prepare(`SELECT 1 FROM provider_delivery_claims
+      WHERE task_id=?1 AND requested_change_seq=?2 AND state='started'`)
+      .bind(mutation.entityId, mutation.payload.requestedChangeSeq).first();
+    if (started) throw new ContractError("command_busy", "A provider command already started and cannot be cancelled.");
+    if (String(error).includes("workspace_guards") && latest?.state === "pending_desktop")
+      throw new ContractError("command_busy", "A provider command already started and cannot be cancelled.");
+    if (latest?.state !== "cancelled")
+      throw new ContractError("invalid_transition", "Only a pending provider command can be cancelled.");
+    throw error;
+  }
+  const receipt = await findReceipt(db, mutation.mutationId);
+  if (!receipt) throw new Error("The atomic cancellation finished without a durable receipt.");
+  return toReceipt(receipt, "accepted");
+}
+
 async function findDuplicate(db: D1Database, mutationId: string, rawRequest: string): Promise<Receipt | null> {
   const receipt = await findReceipt(db, mutationId);
   return receipt ? duplicateOrReuse(receipt, await computeCanonicalHash(rawRequest)) : null;
@@ -198,7 +277,7 @@ export function appendSourceChange(db: D1Database, mutation: SourceRefreshMutati
 
 function insertReceipt(
   db: D1Database,
-  mutation: SourceRefreshMutation | ExternalCommandResultMutation,
+  mutation: SourceRefreshMutation | ExternalCommandResultMutation | ExternalCommandCancelMutation,
   canonicalRequest: string,
   canonicalHash: string,
   acceptedAt: string,

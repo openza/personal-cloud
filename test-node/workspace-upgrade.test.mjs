@@ -14,6 +14,9 @@ test('populated schema 22 upgrades through the current migrations without losing
    db.prepare("INSERT INTO entity_version_claims VALUES('upgrade.task',1,'upgrade.updated')")
   ]);
   for(const migration of migrations.slice(22))await db.batch(migration.queries.map(query=>db.prepare(query)));
+  await db.prepare("INSERT INTO changes VALUES(2,1,'tasks','upgrade.provider-observed','task.reopened','task','upgrade.task',2,'{}','2026-10-17T00:00:01Z')").run();
+  assert.equal((await db.prepare("SELECT operation FROM changes WHERE mutation_id='upgrade.provider-observed'").first()).operation,'task.reopened');
+  assert.equal((await db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='changes_by_entity_operation'").first()).name,'changes_by_entity_operation');
   assert.deepEqual((await db.prepare('PRAGMA foreign_key_check').all()).results,[]);
   assert.equal((await db.prepare("SELECT change_seq FROM mutation_receipts WHERE mutation_id='upgrade.created'").first()).change_seq,1);
   assert.equal((await db.prepare("SELECT mutation_id FROM entity_version_claims WHERE entity_id='upgrade.task'").first()).mutation_id,'upgrade.updated');

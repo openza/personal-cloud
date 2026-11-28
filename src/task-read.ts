@@ -43,7 +43,7 @@ export type ReadOnlyTask = {
     projectName: string | null; priority: number | null; plannedOn: string | null; plannedAt: string | null;
     deadlineOn: string | null; deadlineAt: string | null; recurrenceRule: string | null; refreshedAt: string;
   };
-  externalCommand: null | { command: "complete" | "reopen"; state: "pending_desktop" | "confirmed" | "rejected"; errorCode: string | null; deliveryState:"reserved"|"started"|null };
+  externalCommand: null | { command: "complete" | "reopen"; state: "pending_desktop" | "confirmed" | "rejected" | "cancelled"; errorCode: string | null; deliveryState:"reserved"|"started"|null };
 };
 
 export type TaskReadResponse = {
@@ -174,7 +174,7 @@ export async function readTasks(
         deadlineAt: row.source_deadline_at, recurrenceRule: row.source_recurrence_rule, refreshedAt: row.source_refreshed_at!,
       },
       externalCommand: row.command === null ? null : {
-        command: row.command as "complete" | "reopen", state: row.command_state as "pending_desktop" | "confirmed" | "rejected",
+        command: row.command as "complete" | "reopen", state: row.command_state as "pending_desktop" | "confirmed" | "rejected" | "cancelled",
         errorCode: row.command_error_code,
         deliveryState:row.delivery_state,
       },

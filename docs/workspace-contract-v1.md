@@ -1,18 +1,28 @@
-# Additive workspace contract v1 (schema 25)
+# Additive workspace contract v1 (schema 27)
 
-Source-only Cloud/Desktop coordination contract. Schema 25 contains migrations
-21 (initial status), 22 (history indexes / optional ordered batches), and
-23 (workspace metadata / provider catalog and intents), and24 (indexed source
-ownership, signed bootstrap cursors and compound response bound), and 25 (authoritative task modification timestamps). Protocol remains1.
+Source-only Cloud/Desktop coordination contract. Protocol remains 1; task and
+receipt data are not rewritten.
 No deployment, live provider, installed-app, or production access is authorized.
+
+## Provider-observed reopen
+
+`task.providerObservedReopen` is a provider-state reconciliation mutation. It is accepted only by clouds advertising `capabilities.providerObservedReopen.protocolVersion: 1`. The desktop sends it only after a confirmed provider completion and a fresh provider read reports the linked task open. It opens the cloud task and clears `completed_at` only when the completion is strictly older than `observedAt`; a newer or equal completion remains completed. Each first accepted mutation, including an already-open or stale observation, advances the entity version and change sequence and publishes the current state with the existing `task.reopened` or `task.completed` event. A retry with the same mutation ID returns the original receipt without another event. The mutation MUST NOT create an `external_commands` provider command; the provider already reopened the task. No schema migration is required. Deploy the Worker update before Desktop to enable reconciliation; Desktop is tolerant of an older Cloud, retains deferred observations, and sends them after a later capability check succeeds.
+
+`externalCommand.cancel` is accepted only when `providerCommandCancellation:{protocolVersion:1}` is advertised. It cancels only the exact `requestedChangeSeq`; a superseded sequence is rejected and cannot affect a newer command. It creates no delivery claim or provider invocation, and a started delivery cannot be cancelled. The terminal `cancelled` state is included in bootstrap. Its change-feed notification uses the existing `workspace.changed` event with the current task record, not a new feed operation or a provider-command payload, so schema-26 Desktop readers remain compatible. Requests are idempotent by mutation ID.
+
+`task.createHistoricalCompletion` is accepted only when `historicalCompletionImport:{protocolVersion:1}` is advertised. With `baseEntityVersion:null`, it creates a completed historical task from its completed timestamp; with a base entity version, it applies that historical completion to an already-created open task. Both forms emit the existing `workspace.changed` feed operation with the current task record and never create an `external_commands` row. Desktop uses the update form after `task.createRich` so rich task fields are preserved. Initial upload MUST use this operation for completed historical tasks rather than synthesizing a live `task.complete` command. `workspace.changed` is already supported by schema-26 desktops, so upgrading the Cloud first does not introduce a new feed operation.
+
+Schema 27 adds the terminal provider-command state and both capabilities. Update Cloud first through the existing **Personal Cloud → Manage → Update** workflow, which applies outstanding migrations in numeric order (a Cloud already at schema 26 applies 0027 only); verify health, then update Desktop. Schema-26 desktops receive only the already-supported workspace change shape. A newer Desktop that sees an older Cloud defers these operations until a later successful capability check.
 
 ## Negotiation and compatibility
 
-`GET /health` returns schemaVersion 25 and existing
-`mutationBatch` capabilities plus
-`workspace:{protocolVersion:1,path:"/v1/tasks/mutations",schemaVersion:25}` and
+`GET /health` returns schemaVersion 27 and existing
+`mutationBatch` capabilities and
+`providerObservedReopen:{protocolVersion:1}`, `providerCommandCancellation:{protocolVersion:1}`,
+`historicalCompletionImport:{protocolVersion:1}`, and
+`workspace:{protocolVersion:1,path:"/v1/tasks/mutations",schemaVersion:27}` and
 `providerCatalog:{protocolVersion:2,path:"/v1/provider/catalog",intentsPath:"/v1/provider/intents"}`.
-Desktop accepts supported old schemas17–25. Negotiate the optional bounded
+Desktop accepts supported old schemas17–27. Negotiate the optional bounded
 `workspacePaging` capability using [Workspace paging v1](workspace-paging-v1.md).
 Missing workspace capability
 uses old operations and does not send new envelopes. Schema 23 changes are

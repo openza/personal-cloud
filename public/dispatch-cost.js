@@ -3,11 +3,11 @@ export const dispatchLimits={requests:10000,envelopes:3000,writeCredits:45000};
 export const operationCredits={
   'task.patch':25,'source.refreshSnapshot':16,
   'task.create':50,'task.createRich':50,'task.updateOpenzaFields':50,
-  'task.complete':50,'task.reopen':50,'task.delete':50,
+  'task.complete':50,'task.reopen':50,'task.providerObservedReopen':50,'task.createHistoricalCompletion':50,'task.delete':50,
   'task.setProject':50,'task.move':50,'task.addLabel':50,'task.removeLabel':50,'task.setParent':50,
   'space.put':50,'project.put':50,'provider.scope.put':50,'provider.catalog.put':50,
   'provider.intent.request':50,'provider.intent.start':50,'provider.intent.resolve':50,
-  'externalCommand.confirm':50,'externalCommand.reject':50,
+  'externalCommand.confirm':50,'externalCommand.reject':50,'externalCommand.cancel':50,
   'project.delete':45000,'task.moveTree':45000,
 };
 export const fanoutBudget={protocolVersion:1,requestHeader:'x-openza-fanout-bound',baseCredits:100,perEntityCredits:12};

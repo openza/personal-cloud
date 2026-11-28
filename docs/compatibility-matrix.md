@@ -45,15 +45,16 @@ and validate its fields before using the associated operation.
 | 24 | `0024_source_identity_lookup.sql`, [paging contract](workspace-paging-v1.md) | Source identity index, signed bounded bootstrap paging and compound payload bound. Negotiate paging explicitly. |
 | 25 | Main source `c77e2d966cd25077c1bb8bb6ab1995b6def7a07c`; runtime `853551f8d31f30535ba40fbc490240e8243b6620` | Authoritative task modification time. That runtime also adds fail-closed schema readiness and session/dialog guards without a schema bump. |
 | 26 | `0026_sync_catchup_status.sql`, [current catch-up contract](catchup-status-v1.md), [unfinished Web change recovery](web-pending-recovery-v1.md) | Separate current catch-up reports, atomic Web fan-out allowance and immutable explicit cancellations. Requires explicit schema 26 Desktop support; initial-only progress cannot establish readiness for large Web changes. |
+| 27 | `0027_provider_command_cancellation.sql`, [workspace contract](workspace-contract-v1.md) | Terminal cancellation for exact provider-command sequences and historical completed-task import without provider dispatch. Only schema-27 Desktop sends the new operations; schema-26 Desktop can read the existing workspace change shape during Cloud-first update. |
 
 No independently pinned release for each intermediate schema 21–24 is asserted
 here. Those rows identify ordered migration/contract evidence. Capability version
 and response shape matter: workspace, catalog and paging are separately
 negotiated; a schema number does not authorize lossy fallback or a guessed API.
 
-The earlier Desktop snapshots above stop at schema 25. A schema 26 source update
-requires a newer compatible Desktop consumer and a newly verified artifact; the
-historical schema 20 pin and local schema 25 artifact are not schema 26 packages.
+The earlier Desktop snapshots above stop at schema 25. Schema 27 requires a newer
+compatible Desktop consumer and a newly verified artifact; the historical schema
+20 pin and local schema 25 artifact are not schema 27 packages.
 
 ## What was tested
 

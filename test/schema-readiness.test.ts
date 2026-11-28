@@ -12,11 +12,11 @@ async function assertNotReady(){
  expect(body.error.code).toBe('schema_not_ready');
  expect(JSON.stringify(body)).not.toMatch(/SELECT|sqlite|updated_at|trigger|table|database_id/);
 }
-describe.sequential('schema26 health readiness',()=>{
+describe.sequential('schema27 health readiness',()=>{
  it('accepts the fully migrated binding without changing the success shape',async()=>{
   expect(await schemaReady(env.DB)).toBe(true);
   const response=await health();expect(response.status).toBe(200);
-  const body=await response.json() as {schemaVersion:number};expect(body.schemaVersion).toBe(26);
+  const body=await response.json() as {schemaVersion:number};expect(body.schemaVersion).toBe(27);
  });
  for(const name of ['tasks_initial_updated_at','tasks_accepted_updated_at','changes_workspace_response_limit',
    'workspace_task_project_insert','provider_delivery_result_owned','mutation_receipts_are_immutable_before_update',

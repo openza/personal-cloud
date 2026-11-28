@@ -5,7 +5,10 @@ import {
   computeCanonicalHash,
   parseTaskCompleteMutation,
   parseTaskCreateMutation,
+  parseTaskHistoricalCompletionImportMutation,
+  parseExternalCommandCancelMutation,
   parseTaskReopenMutation,
+  parseTaskProviderObservedReopenMutation,
   parseTaskUpdatePriorityMutation,
   parseTaskUpdateTitleMutation,
   parseTaskUpdateWorkflowStatusMutation,
@@ -13,6 +16,9 @@ import {
 import { applyTaskComplete } from "../src/task-complete.ts";
 import { applyTaskCreate } from "../src/task-create.ts";
 import { applyTaskReopen } from "../src/task-reopen.ts";
+import { applyTaskProviderObservedReopen } from "../src/task-provider-observed-reopen.ts";
+import { applyExternalCommandCancel } from "../src/source-lifecycle.ts";
+import { bootstrap } from "../src/bootstrap.ts";
 import { applyTaskOpenzaFieldsUpdate } from "../src/task-title-update.ts";
 import acceptedReceipt from "./fixtures/accepted-task-reopen-receipt.json";
 import canonicalReopen from "./fixtures/valid-task-reopen.canonical.json?raw";
@@ -182,5 +188,200 @@ describe.sequential("task.reopen", () => {
     expect(result.body).toMatchObject({ product: "tasks", error: { retryable: false } });
     expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation = 'task.reopened'")
       .first()).toEqual(before);
+  });
+
+  it("applies provider-observed reopen idempotently without creating a provider command", async () => {
+    const deviceId = "device_provider_observed_reopen";
+    const taskId = "local_provider_observed_reopen";
+    await env.DB.prepare("INSERT INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at) VALUES(?1,'Synthetic provider reopen','desktop',1,0,'2026-11-27T12:00:00.000Z')")
+      .bind(deviceId).run();
+    const create = JSON.parse(goldenCreate) as MutableMutation;
+    Object.assign(create,{deviceId,mutationId:"mutation_provider_observed_create",deviceSequence:1,entityId:taskId,clientCreatedAt:"2026-11-27T12:00:00.000Z"});
+    Object.assign(create.payload.task,{id:taskId,title:"Synthetic linked task",createdAt:"2026-11-27T12:00:00.000Z"});
+    const createRaw = JSON.stringify(create);
+    await applyTaskCreate(env.DB,parseTaskCreateMutation(createRaw,env.INSTANCE_ID),createRaw);
+    const complete = JSON.parse(goldenComplete) as MutableMutation;
+    Object.assign(complete,{deviceId,mutationId:"mutation_provider_observed_complete",deviceSequence:2,entityId:taskId,baseEntityVersion:1,clientCreatedAt:"2026-11-27T12:00:01.000Z"});
+    complete.payload.completedAt = "2026-11-27T12:00:01.000Z";
+    const completeRaw = JSON.stringify(complete);
+    const completion = await applyTaskComplete(env.DB,parseTaskCompleteMutation(completeRaw,env.INSTANCE_ID),completeRaw);
+    const task = await env.DB.prepare("SELECT id,entity_version FROM tasks WHERE id=?1").bind(taskId).first<{id:string;entity_version:number}>();
+    await env.DB.prepare("UPDATE tasks SET title='Synthetic renamed task',entity_version=entity_version+1 WHERE id=?1").bind(taskId).run();
+    await env.DB.prepare("INSERT INTO source_descriptors(task_id,integration_kind,external_id_hash,source_title,refreshed_at) VALUES(?1,'todoist',?2,'Synthetic linked task','2026-11-27T12:00:00.000Z')")
+      .bind(taskId,"a".repeat(64)).run();
+    await env.DB.prepare("INSERT INTO external_commands(task_id,command,state,requested_change_seq,updated_at,error_code) VALUES(?1,'complete','confirmed',?2,'2026-11-27T12:00:00.000Z',NULL)")
+      .bind(taskId,completion.changeSeq).run();
+    const mutation = {protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId,mutationId:"mutation_provider_observed_reopen",deviceSequence:3,operation:"task.providerObservedReopen",entityId:taskId,baseEntityVersion:task!.entity_version,payload:{observedAt:"2026-11-27T12:00:02.000Z"},clientCreatedAt:"2026-11-27T12:00:02.000Z"};
+    const raw = JSON.stringify(mutation);
+    const parsed = parseTaskProviderObservedReopenMutation(raw,env.INSTANCE_ID);
+    const commandCount = await env.DB.prepare("SELECT count(*) AS count FROM external_commands WHERE task_id=?1").bind(taskId).first<{count:number}>();
+    const accepted = await applyTaskProviderObservedReopen(env.DB,parsed,raw,{now:()=>new Date("2026-11-27T12:00:03.000Z")});
+    expect(await applyTaskProviderObservedReopen(env.DB,parsed,raw)).toMatchObject({outcome:"duplicate"});
+    expect(await env.DB.prepare("SELECT completion_state,completed_at FROM tasks WHERE id=?1").bind(taskId).first())
+      .toEqual({completion_state:"open",completed_at:null});
+    expect(await env.DB.prepare("SELECT title,entity_version FROM tasks WHERE id=?1").bind(taskId).first())
+      .toEqual({title:"Synthetic renamed task",entity_version:4});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.reopened' AND entity_id=?1").bind(taskId).first())
+      .toEqual({count:1});
+    const feed = await exports.default.fetch(`https://personal-cloud.local/sync/changes?after=${accepted.changeSeq-1}&limit=1`);
+    expect((await feed.json() as any).changes[0]).toMatchObject({operation:"task.reopened",entityId:taskId});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM external_commands WHERE task_id=?1").bind(taskId).first())
+      .toEqual(commandCount);
+    const snapshot = await bootstrap(env.DB,true) as {snapshot:{tasks:Array<{id:string;completionState:string;completedAt:string|null}>}};
+    expect(snapshot.snapshot.tasks.find(value=>value.id===taskId)).toMatchObject({completionState:"open",completedAt:null});
+
+    const alreadyOpen = {...mutation,mutationId:"mutation_provider_observed_already_open",deviceSequence:4,baseEntityVersion:accepted.entityVersion};
+    const alreadyOpenRaw = JSON.stringify(alreadyOpen);
+    const alreadyOpenReceipt = await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(alreadyOpenRaw,env.INSTANCE_ID),alreadyOpenRaw);
+    expect(alreadyOpenReceipt).toMatchObject({outcome:"accepted",entityVersion:accepted.entityVersion+1,changeSeq:accepted.changeSeq+1});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.reopened' AND entity_id=?1").bind(taskId).first()).toEqual({count:2});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM external_commands WHERE task_id=?1").bind(taskId).first()).toEqual(commandCount);
+
+    const laterComplete = JSON.parse(JSON.stringify(complete)) as MutableMutation;
+    Object.assign(laterComplete,{mutationId:"mutation_provider_observed_later_complete",deviceSequence:5,baseEntityVersion:alreadyOpenReceipt.entityVersion});
+    laterComplete.payload.completedAt = "2026-11-27T12:00:05.000Z";
+    const laterCompleteRaw = JSON.stringify(laterComplete);
+    await applyTaskComplete(env.DB,parseTaskCompleteMutation(laterCompleteRaw,env.INSTANCE_ID),laterCompleteRaw);
+    const boundaryObservation = {...alreadyOpen,mutationId:"mutation_provider_observed_equal_boundary",deviceSequence:6,
+      payload:{observedAt:"2026-11-27T12:00:05.000Z"}};
+    const boundaryRaw = JSON.stringify(boundaryObservation);
+    await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(boundaryRaw,env.INSTANCE_ID),boundaryRaw);
+    const delayedObservation = {...alreadyOpen,mutationId:"mutation_provider_observed_delayed",deviceSequence:7,
+      payload:{observedAt:"2026-11-27T12:00:04.000Z"}};
+    const delayedRaw = JSON.stringify(delayedObservation);
+    await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(delayedRaw,env.INSTANCE_ID),delayedRaw);
+    expect(await env.DB.prepare("SELECT completion_state,completed_at FROM tasks WHERE id=?1").bind(taskId).first())
+      .toEqual({completion_state:"completed",completed_at:"2026-11-27T12:00:05.000Z"});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.reopened' AND entity_id=?1").bind(taskId).first()).toEqual({count:2});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.completed' AND entity_id=?1").bind(taskId).first()).toEqual({count:4});
+    expect(await env.DB.prepare("SELECT entity_version FROM tasks WHERE id=?1").bind(taskId).first()).toEqual({entity_version:8});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM external_commands WHERE task_id=?1 AND command='reopen'").bind(taskId).first())
+      .toEqual({count:0});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM external_commands WHERE task_id=?1").bind(taskId).first())
+      .toEqual(commandCount);
+  });
+
+  it("imports completed history without a live provider command", async () => {
+    const deviceId = "device_historical_completion_import";
+    const taskId = "local_historical_completion_import";
+    await env.DB.prepare("INSERT INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at) VALUES(?1,'Synthetic historical import','desktop',1,1,'2026-11-27T12:00:00.000Z')")
+      .bind(deviceId).run();
+    const completedAt = "2026-11-26T12:00:00.000Z";
+    const mutation = {
+      protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId,
+      mutationId:"mutation_historical_completion_import",deviceSequence:1,
+      operation:"task.createHistoricalCompletion",entityId:taskId,baseEntityVersion:null,
+      payload:{task:{id:taskId,spaceId:"space_default",title:"Synthetic completed history",workflowStatus:"inbox",
+        createdAt:"2026-11-20T12:00:00.000Z",completedAt},
+        source:{integrationKind:"todoist",externalIdHash:"b".repeat(64),sourceUrl:null,title:"Synthetic completed history",
+          description:null,projectName:null,priority:null,plannedOn:null,plannedAt:null,deadlineOn:null,deadlineAt:null,
+          recurrenceRule:null,refreshedAt:"2026-11-27T12:00:00.000Z"}},
+      clientCreatedAt:"2026-11-27T12:00:00.000Z",
+    };
+    const raw=JSON.stringify(mutation);
+    const receipt=await applyTaskCreate(env.DB,parseTaskHistoricalCompletionImportMutation(raw,env.INSTANCE_ID),raw);
+    expect(await env.DB.prepare("SELECT completion_state,completed_at FROM tasks WHERE id=?1").bind(taskId).first())
+      .toEqual({completion_state:"completed",completed_at:completedAt});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM external_commands WHERE task_id=?1").bind(taskId).first())
+      .toEqual({count:0});
+    const change=await exports.default.fetch(`https://personal-cloud.local/sync/changes?after=${receipt.changeSeq-1}&limit=1&workspace=1`);
+    const pulled=await change.json() as any;
+    expect(pulled.changes[0]).toMatchObject({operation:"workspace.changed",entityId:taskId,
+      payload:{tasks:[{id:taskId,completionState:"completed",completedAt}]}});
+    const snapshot=await bootstrap(env.DB,true) as {snapshot:{tasks:Array<{id:string;completionState:string;completedAt:string|null}>;externalCommands:Array<{taskId:string;state:string}>}};
+    expect(snapshot.snapshot.tasks.find(task=>task.id===taskId)).toMatchObject({completionState:"completed",completedAt});
+    expect(snapshot.snapshot.externalCommands.find(command=>command.taskId===taskId)).toBeUndefined();
+  });
+
+  it("applies historical completion to an existing open task through the supported workspace feed", async () => {
+    const deviceId="device_historical_completion_update";
+    const taskId="local_historical_completion_update";
+    await env.DB.prepare("INSERT INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at) VALUES(?1,'Synthetic historical update','desktop',1,1,'2026-11-27T12:00:00.000Z')")
+      .bind(deviceId).run();
+    const create=JSON.parse(goldenCreate) as MutableMutation;
+    Object.assign(create,{deviceId,mutationId:"mutation_historical_update_create",deviceSequence:1,entityId:taskId,clientCreatedAt:"2026-11-27T12:00:00.000Z"});
+    Object.assign(create.payload.task,{id:taskId,title:"Synthetic rich historical completion",createdAt:"2026-11-20T12:00:00.000Z"});
+    const createRaw=JSON.stringify(create);
+    await applyTaskCreate(env.DB,parseTaskCreateMutation(createRaw,env.INSTANCE_ID),createRaw);
+    const completedAt="2026-11-26T12:00:00.000Z";
+    const mutation={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId,mutationId:"mutation_historical_update_complete",
+      deviceSequence:2,operation:"task.createHistoricalCompletion",entityId:taskId,baseEntityVersion:1,
+      payload:{completedAt},clientCreatedAt:"2026-11-27T12:00:01.000Z"};
+    const raw=JSON.stringify(mutation);
+    const parsed=parseTaskHistoricalCompletionImportMutation(raw,env.INSTANCE_ID);
+    const receipt=await applyTaskCreate(env.DB,parsed,raw);
+    expect(await env.DB.prepare("SELECT completion_state,completed_at,entity_version FROM tasks WHERE id=?1").bind(taskId).first())
+      .toEqual({completion_state:"completed",completed_at:completedAt,entity_version:2});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM external_commands WHERE task_id=?1").bind(taskId).first()).toEqual({count:0});
+    const feed=await exports.default.fetch(`https://personal-cloud.local/sync/changes?after=${receipt.changeSeq-1}&limit=1&workspace=1`);
+    expect((await feed.json() as any).changes[0]).toMatchObject({operation:"workspace.changed",entityId:taskId,
+      payload:{tasks:[{id:taskId,completionState:"completed",completedAt}]}});
+    const snapshot=await bootstrap(env.DB,true) as {snapshot:{tasks:Array<{id:string;completionState:string;completedAt:string|null}>}};
+    expect(snapshot.snapshot.tasks.find(task=>task.id===taskId)).toMatchObject({completionState:"completed",completedAt});
+  });
+
+  it("rejects historical completion when a concurrent task edit wins after the read", async () => {
+    const deviceId=`device_historical_completion_race_${crypto.randomUUID()}`;
+    const taskId=`local_historical_completion_race_${deviceId}`;
+    await env.DB.prepare("INSERT INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at) VALUES(?1,'Synthetic history race','desktop',1,1,'2026-11-27T12:00:00.000Z')")
+      .bind(deviceId).run();
+    const create=JSON.parse(goldenCreate) as MutableMutation;
+    Object.assign(create,{deviceId,mutationId:`${deviceId}_create`,deviceSequence:1,entityId:taskId,clientCreatedAt:"2026-11-27T12:00:00.000Z"});
+    Object.assign(create.payload.task,{id:taskId,title:"Synthetic before concurrent edit",createdAt:"2026-11-20T12:00:00.000Z"});
+    const createRaw=JSON.stringify(create);
+    await applyTaskCreate(env.DB,parseTaskCreateMutation(createRaw,env.INSTANCE_ID),createRaw);
+    const mutation={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId,mutationId:`${deviceId}_complete`,
+      deviceSequence:2,operation:"task.createHistoricalCompletion",entityId:taskId,baseEntityVersion:1,
+      payload:{completedAt:"2026-11-26T12:00:00.000Z"},clientCreatedAt:"2026-11-27T12:00:01.000Z"};
+    const raw=JSON.stringify(mutation);
+    await expect(applyTaskCreate(env.DB,parseTaskHistoricalCompletionImportMutation(raw,env.INSTANCE_ID),raw,{
+      beforeHistoricalCompletionBatch:async()=>{
+        await env.DB.prepare("UPDATE tasks SET title='Synthetic concurrent edit',entity_version=2 WHERE id=?1").bind(taskId).run();
+      },
+    })).rejects.toMatchObject({code:"version_conflict"});
+    expect(await env.DB.prepare("SELECT title,completion_state,entity_version FROM tasks WHERE id=?1").bind(taskId).first())
+      .toEqual({title:"Synthetic concurrent edit",completion_state:"open",entity_version:2});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM mutation_receipts WHERE mutation_id=?1").bind(mutation.mutationId).first())
+      .toEqual({count:0});
+    expect(await env.DB.prepare("SELECT last_sequence FROM device_sequences WHERE device_id=?1").bind(deviceId).first())
+      .toEqual({last_sequence:1});
+  });
+
+  it("cancels only the matching command sequence without creating a delivery claim", async () => {
+    const deviceId="device_external_command_cancel";
+    const taskId="local_external_command_cancel";
+    await env.DB.prepare("INSERT INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at) VALUES(?1,'Synthetic command cancellation','desktop',1,1,'2026-11-27T12:00:00.000Z')")
+      .bind(deviceId).run();
+    const create=JSON.parse(goldenCreate) as MutableMutation;
+    Object.assign(create,{deviceId,mutationId:"mutation_cancel_create",deviceSequence:1,entityId:taskId,clientCreatedAt:"2026-11-27T12:00:00.000Z"});
+    Object.assign(create.payload.task,{id:taskId,title:"Synthetic pending provider command",createdAt:"2026-11-27T12:00:00.000Z"});
+    const createRaw=JSON.stringify(create);
+    await applyTaskCreate(env.DB,parseTaskCreateMutation(createRaw,env.INSTANCE_ID),createRaw);
+    await env.DB.prepare(`INSERT INTO source_descriptors(task_id,integration_kind,external_id_hash,source_title,refreshed_at)
+      VALUES(?1,'todoist',?2,'Synthetic pending provider command','2026-11-27T12:00:00.000Z')`).bind(taskId,"c".repeat(64)).run();
+    const complete=JSON.parse(goldenComplete) as MutableMutation;
+    Object.assign(complete,{deviceId,mutationId:"mutation_cancel_complete",deviceSequence:2,entityId:taskId,baseEntityVersion:1,clientCreatedAt:"2026-11-27T12:00:01.000Z"});
+    complete.payload.completedAt="2026-11-27T12:00:01.000Z";
+    const completeRaw=JSON.stringify(complete);
+    const completion=await applyTaskComplete(env.DB,parseTaskCompleteMutation(completeRaw,env.INSTANCE_ID),completeRaw);
+    const cancel={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId,mutationId:"mutation_cancel_provider_command",
+      deviceSequence:3,operation:"externalCommand.cancel",entityId:taskId,baseEntityVersion:null,
+      payload:{requestedChangeSeq:completion.changeSeq,reason:"initial_seed"},clientCreatedAt:"2026-11-27T12:00:02.000Z"};
+    const staleRaw=JSON.stringify({...cancel,mutationId:"mutation_cancel_stale_sequence",payload:{...cancel.payload,requestedChangeSeq:completion.changeSeq-1}});
+    await expect(applyExternalCommandCancel(env.DB,parseExternalCommandCancelMutation(staleRaw,env.INSTANCE_ID),staleRaw))
+      .rejects.toMatchObject({code:"command_superseded"});
+    const raw=JSON.stringify(cancel);
+    const parsed=parseExternalCommandCancelMutation(raw,env.INSTANCE_ID);
+    const cancelled=await applyExternalCommandCancel(env.DB,parsed,raw,()=>new Date("2026-11-27T12:00:03.000Z"));
+    expect(await applyExternalCommandCancel(env.DB,parsed,raw)).toMatchObject({outcome:"duplicate"});
+    expect(await env.DB.prepare("SELECT state,requested_change_seq,error_code FROM external_commands WHERE task_id=?1").bind(taskId).first())
+      .toEqual({state:"cancelled",requested_change_seq:completion.changeSeq,error_code:"initial_seed"});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM provider_delivery_claims WHERE task_id=?1").bind(taskId).first())
+      .toEqual({count:0});
+    const feed=await exports.default.fetch(`https://personal-cloud.local/sync/changes?after=${cancelled.changeSeq-1}&limit=1&workspace=1`);
+    expect((await feed.json() as any).changes[0]).toMatchObject({operation:"workspace.changed",entityId:taskId,
+      payload:{tasks:[{id:taskId,completionState:"completed"}]}});
+    const snapshot=await bootstrap(env.DB,true) as {snapshot:{externalCommands:Array<{taskId:string;state:string;requestedChangeSeq:number}>}};
+    expect(snapshot.snapshot.externalCommands.find(command=>command.taskId===taskId)).toMatchObject({state:"cancelled",requestedChangeSeq:completion.changeSeq});
   });
 });

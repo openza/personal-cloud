@@ -35,6 +35,14 @@ export type TaskCreateMutation = {
   clientCreatedAt: string;
 };
 
+export type TaskHistoricalCompletionImportMutation = {
+  protocolVersion: 1; product: "tasks"; instanceId: string; deviceId: string; mutationId: string;
+  deviceSequence: number; operation: "task.createHistoricalCompletion"; entityId: string;
+  baseEntityVersion: number | null;
+  payload: { task: { id: string; spaceId: string; title: string; workflowStatus: "inbox"; createdAt: string; completedAt: string }; source?: SafeSourceDescriptor } | { completedAt: string };
+  clientCreatedAt: string;
+};
+
 export type SafeSourceDescriptor = {
   integrationKind: string;
   externalIdHash: string;
@@ -175,6 +183,12 @@ export type TaskReopenMutation = {
   clientCreatedAt: string;
 };
 
+export type TaskProviderObservedReopenMutation = {
+  protocolVersion: 1; product: "tasks"; instanceId: string; deviceId: string; mutationId: string;
+  deviceSequence: number; operation: "task.providerObservedReopen"; entityId: string;
+  baseEntityVersion: number; payload: { observedAt: string }; clientCreatedAt: string;
+};
+
 export type TaskDeleteMutation = {
   protocolVersion: 1;
   product: "tasks";
@@ -222,6 +236,13 @@ export type ExternalCommandResultMutation = {
   clientCreatedAt: string;
 };
 
+export type ExternalCommandCancelMutation = {
+  protocolVersion: 1; product: "tasks"; instanceId: string; deviceId: string; mutationId: string;
+  deviceSequence: number; operation: "externalCommand.cancel"; entityId: string; baseEntityVersion: null;
+  payload: { requestedChangeSeq: number; reason: "missing_source" | "cancelled_attempt" | "initial_seed" };
+  clientCreatedAt: string;
+};
+
 type NamedEntity = { id: string; name: string };
 export type TaskRelationshipMutation = {
   protocolVersion: 1; product: "tasks"; instanceId: string; deviceId: string;
@@ -236,8 +257,8 @@ export type TaskRelationshipMutation = {
 );
 
 export type TaskMutation =
-  TaskCreateMutation | TaskOpenzaFieldsMutation | TaskCompleteMutation | TaskReopenMutation | TaskDeleteMutation |
-  TaskRelationshipMutation | SourceRefreshMutation | ExternalCommandResultMutation | WorkspaceMutation;
+  TaskCreateMutation | TaskHistoricalCompletionImportMutation | TaskOpenzaFieldsMutation | TaskCompleteMutation | TaskReopenMutation | TaskProviderObservedReopenMutation | TaskDeleteMutation |
+  TaskRelationshipMutation | SourceRefreshMutation | ExternalCommandResultMutation | ExternalCommandCancelMutation | WorkspaceMutation;
 
 export type CheckpointAcknowledgement = {
   protocolVersion: 1;
@@ -264,6 +285,7 @@ export function parseTaskMutation(json: string, expectedInstanceId: string): Tas
   const mutation = requireObject(value, "mutation");
   if (workspaceOperations.includes(mutation.operation as any)) return parseWorkspaceMutation(json, expectedInstanceId);
   if (mutation.operation === "task.create") return parseTaskCreateMutation(json, expectedInstanceId);
+  if (mutation.operation === "task.createHistoricalCompletion") return parseTaskHistoricalCompletionImportMutation(json, expectedInstanceId);
   if (mutation.operation === "task.updateOpenzaFields") {
     const payload = requireObject(mutation.payload, "payload");
     const keys = Object.keys(payload);
@@ -290,11 +312,13 @@ export function parseTaskMutation(json: string, expectedInstanceId: string): Tas
   }
   if (mutation.operation === "task.complete") return parseTaskCompleteMutation(json, expectedInstanceId);
   if (mutation.operation === "task.reopen") return parseTaskReopenMutation(json, expectedInstanceId);
+  if (mutation.operation === "task.providerObservedReopen") return parseTaskProviderObservedReopenMutation(json, expectedInstanceId);
   if (mutation.operation === "task.delete") return parseTaskDeleteMutation(json, expectedInstanceId);
   if (mutation.operation === "source.refreshSnapshot") return parseSourceRefreshMutation(json, expectedInstanceId);
   if (mutation.operation === "externalCommand.confirm" || mutation.operation === "externalCommand.reject") {
     return parseExternalCommandResultMutation(json, expectedInstanceId);
   }
+  if (mutation.operation === "externalCommand.cancel") return parseExternalCommandCancelMutation(json, expectedInstanceId);
   if (["task.setProject", "task.move", "task.addLabel", "task.removeLabel", "task.setParent"].includes(String(mutation.operation))) {
     return parseTaskRelationshipMutation(json, expectedInstanceId);
   }
@@ -448,6 +472,23 @@ export function parseTaskReopenMutation(json: string, expectedInstanceId: string
   return value as TaskReopenMutation;
 }
 
+export function parseTaskProviderObservedReopenMutation(json: string, expectedInstanceId: string): TaskProviderObservedReopenMutation {
+  const value = new StrictJsonParser(json).parse();
+  const mutation = requireObject(value, "mutation");
+  requireExactKeys(mutation, ["protocolVersion", "product", "instanceId", "deviceId", "mutationId", "deviceSequence", "operation", "entityId", "baseEntityVersion", "payload", "clientCreatedAt"]);
+  if (mutation.protocolVersion !== protocolVersion) fail("unsupported_protocol", "Only Personal Cloud protocol version 1 is supported.");
+  if (mutation.product !== tasksProduct) fail("unsupported_product", "This endpoint accepts Openza Tasks mutations only.");
+  requireIdentifier(mutation.instanceId, "instanceId"); requireIdentifier(mutation.deviceId, "deviceId");
+  requireIdentifier(mutation.mutationId, "mutationId"); requireIdentifier(mutation.entityId, "entityId");
+  if (mutation.instanceId !== expectedInstanceId) fail("instance_mismatch", "The mutation targets another Personal Cloud instance.");
+  if (!Number.isSafeInteger(mutation.deviceSequence) || (mutation.deviceSequence as number) <= 0 ||
+      !Number.isSafeInteger(mutation.baseEntityVersion) || (mutation.baseEntityVersion as number) <= 0 ||
+      mutation.operation !== "task.providerObservedReopen") fail("invalid_request", "The provider-observed reopen mutation is invalid.");
+  const payload = requireObject(mutation.payload, "payload"); requireExactKeys(payload, ["observedAt"]);
+  requireTimestamp(payload.observedAt, "payload.observedAt"); requireTimestamp(mutation.clientCreatedAt, "clientCreatedAt");
+  return value as TaskProviderObservedReopenMutation;
+}
+
 export function parseTaskCompleteMutation(json: string, expectedInstanceId: string): TaskCompleteMutation {
   const value = new StrictJsonParser(json).parse();
   const mutation = requireObject(value, "mutation");
@@ -531,6 +572,59 @@ export function parseTaskCreateMutation(json: string, expectedInstanceId: string
   requireTimestamp(mutation.clientCreatedAt, "clientCreatedAt");
 
   return value as TaskCreateMutation;
+}
+
+export function parseTaskHistoricalCompletionImportMutation(json: string, expectedInstanceId: string): TaskHistoricalCompletionImportMutation {
+  const value = new StrictJsonParser(json).parse();
+  const mutation = requireObject(value, "mutation");
+  requireExactKeys(mutation, ["protocolVersion", "product", "instanceId", "deviceId", "mutationId", "deviceSequence", "operation", "entityId", "baseEntityVersion", "payload", "clientCreatedAt"]);
+  if (mutation.protocolVersion !== protocolVersion) fail("unsupported_protocol", "Only Personal Cloud protocol version 1 is supported.");
+  if (mutation.product !== tasksProduct) fail("unsupported_product", "This endpoint accepts Openza Tasks mutations only.");
+  requireIdentifier(mutation.instanceId, "instanceId"); requireIdentifier(mutation.deviceId, "deviceId");
+  requireIdentifier(mutation.mutationId, "mutationId"); requireIdentifier(mutation.entityId, "entityId");
+  if (mutation.instanceId !== expectedInstanceId) fail("instance_mismatch", "The mutation targets another Personal Cloud instance.");
+  if (!Number.isSafeInteger(mutation.deviceSequence) || (mutation.deviceSequence as number) <= 0 ||
+      mutation.operation !== "task.createHistoricalCompletion" ||
+      (mutation.baseEntityVersion !== null && (!Number.isSafeInteger(mutation.baseEntityVersion) || (mutation.baseEntityVersion as number) <= 0)))
+    fail("invalid_request", "The historical completion import envelope is invalid.");
+  const payload = requireObject(mutation.payload, "payload");
+  const keys = Object.keys(payload).sort();
+  if (mutation.baseEntityVersion === null) {
+    if (!(keys.length === 1 && keys[0] === "task") && !(keys.length === 2 && keys[0] === "source" && keys[1] === "task"))
+      fail("invalid_request", "Historical creation accepts a task and one optional safe source descriptor.");
+    const task = requireObject(payload.task, "payload.task");
+    requireExactKeys(task, ["id", "spaceId", "title", "workflowStatus", "createdAt", "completedAt"]);
+    requireIdentifier(task.id, "payload.task.id"); requireIdentifier(task.spaceId, "payload.task.spaceId");
+    if (mutation.entityId !== task.id || task.workflowStatus !== "inbox") fail("invalid_request", "The historical task identity or workflow status is invalid.");
+    requireTitle(task.title, "payload.task.title"); requireTimestamp(task.createdAt, "payload.task.createdAt");
+    requireTimestamp(task.completedAt, "payload.task.completedAt");
+    if ("source" in payload) validateSafeSourceDescriptor(payload.source);
+  } else {
+    requireExactKeys(payload, ["completedAt"]);
+    requireTimestamp(payload.completedAt, "payload.completedAt");
+  }
+  requireTimestamp(mutation.clientCreatedAt, "clientCreatedAt");
+  return value as TaskHistoricalCompletionImportMutation;
+}
+
+export function parseExternalCommandCancelMutation(json: string, expectedInstanceId: string): ExternalCommandCancelMutation {
+  const value = new StrictJsonParser(json).parse();
+  const mutation = requireObject(value, "mutation");
+  requireExactKeys(mutation, ["protocolVersion", "product", "instanceId", "deviceId", "mutationId", "deviceSequence", "operation", "entityId", "baseEntityVersion", "payload", "clientCreatedAt"]);
+  if (mutation.protocolVersion !== protocolVersion) fail("unsupported_protocol", "Only Personal Cloud protocol version 1 is supported.");
+  if (mutation.product !== tasksProduct) fail("unsupported_product", "This endpoint accepts Openza Tasks mutations only.");
+  requireIdentifier(mutation.instanceId, "instanceId"); requireIdentifier(mutation.deviceId, "deviceId");
+  requireIdentifier(mutation.mutationId, "mutationId"); requireIdentifier(mutation.entityId, "entityId");
+  if (mutation.instanceId !== expectedInstanceId) fail("instance_mismatch", "The mutation targets another Personal Cloud instance.");
+  if (!Number.isSafeInteger(mutation.deviceSequence) || (mutation.deviceSequence as number) <= 0 ||
+      mutation.operation !== "externalCommand.cancel" || mutation.baseEntityVersion !== null)
+    fail("invalid_request", "The external command cancellation envelope is invalid.");
+  const payload = requireObject(mutation.payload, "payload"); requireExactKeys(payload, ["requestedChangeSeq", "reason"]);
+  if (!Number.isSafeInteger(payload.requestedChangeSeq) || (payload.requestedChangeSeq as number) <= 0 ||
+      !["missing_source", "cancelled_attempt", "initial_seed"].includes(String(payload.reason)))
+    fail("invalid_request", "The external command cancellation request is invalid.");
+  requireTimestamp(mutation.clientCreatedAt, "clientCreatedAt");
+  return value as ExternalCommandCancelMutation;
 }
 
 export function validateSafeSourceDescriptor(value: JsonValue | undefined): void {

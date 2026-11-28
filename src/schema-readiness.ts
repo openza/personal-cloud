@@ -1,5 +1,5 @@
 import {throwDailyQuota} from "./daily-quota.ts";
-// Schema 26 readiness checks metadata and resolves required columns without reading rows.
+// Schema 27 readiness checks metadata and resolves required columns without reading rows.
 // This is a readiness contract, not a replacement for checksum migration preflight.
 const requiredColumns: Record<string, readonly string[]> = {
   auth_challenges: ["challenge_hash", "purpose", "credential_id", "expires_at", "consumed_at", "attempt_count", "created_at"],
@@ -89,6 +89,7 @@ const requiredObjects = [
   ["table", "workspace_guards", "workspace_guards"],
   ["index", "changes_by_entity_operation", "changes"],
   ["index", "changes_source_history_by_entity", "changes"],
+  ["index", "external_commands_cancelled_by_sequence", "external_commands"],
   ["index", "device_access_tokens_active_by_device", "device_access_tokens"],
   ["index", "entity_version_claims_mutation", "entity_version_claims"],
   ["index", "owner_credentials_single_active", "owner_credentials"],
