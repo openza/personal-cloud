@@ -180,14 +180,17 @@ async function applyHistoricalCompletionUpdate(
   const statements: D1PreparedStatement[] = [
     db.prepare("INSERT INTO device_sequence_claims(device_id,device_sequence,mutation_id) VALUES(?1,?2,?3)")
       .bind(mutation.deviceId, mutation.deviceSequence, mutation.mutationId),
-    db.prepare("INSERT INTO entity_version_claims(entity_id,base_entity_version,mutation_id) VALUES(?1,?2,?3)")
-      .bind(mutation.entityId, current.entity_version, mutation.mutationId),
+  ];
+  if (current.completion_state === "open")
+    statements.push(db.prepare("INSERT INTO entity_version_claims(entity_id,base_entity_version,mutation_id) VALUES(?1,?2,?3)")
+      .bind(mutation.entityId, current.entity_version, mutation.mutationId));
+  statements.push(
     db.prepare(`INSERT INTO workspace_guards(id,valid)
       SELECT ?1,CASE WHEN EXISTS(SELECT 1 FROM tasks WHERE id=?2 AND deleted_at IS NULL AND entity_version=?3
         AND ((completion_state='open' AND entity_version=?4) OR (completion_state='completed' AND completed_at=?5)))
         THEN 1 ELSE 0 END`)
       .bind(versionGuardId, mutation.entityId, current.entity_version, mutation.baseEntityVersion, completedAt),
-  ];
+  );
   if (current.completion_state === "open")
     statements.push(db.prepare("UPDATE tasks SET completion_state='completed',completed_at=?1,entity_version=?2,updated_at=?3 WHERE id=?4 AND entity_version=?5 AND completion_state='open'")
       .bind(completedAt, version, acceptedAt, mutation.entityId, mutation.baseEntityVersion));

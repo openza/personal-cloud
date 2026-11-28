@@ -27,6 +27,7 @@ import canonicalReopen from "./fixtures/valid-task-reopen.canonical.json?raw";
 import duplicateReceipt from "./fixtures/duplicate-task-reopen-receipt.json";
 import goldenComplete from "./fixtures/valid-task-complete.json?raw";
 import goldenCreate from "./fixtures/valid-task-create.json?raw";
+import goldenDelete from "./fixtures/valid-task-delete.json?raw";
 import goldenPriority from "./fixtures/valid-task-priority-update.json?raw";
 import goldenReopen from "./fixtures/valid-task-reopen.json?raw";
 import goldenTitle from "./fixtures/valid-task-title-update.json?raw";
@@ -63,6 +64,29 @@ async function applyGoldenChainThroughCompletion(): Promise<void> {
     env.DB, parseTaskUpdatePriorityMutation(goldenPriority, env.INSTANCE_ID), goldenPriority,
   );
   await applyTaskComplete(env.DB, parseTaskCompleteMutation(goldenComplete, env.INSTANCE_ID), goldenComplete);
+}
+
+async function createHistoricallyCompletedTask(deviceId: string, taskId: string, mutationPrefix: string): Promise<string> {
+  await env.DB.prepare("INSERT INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at) VALUES(?1,'Synthetic historical progression','desktop',1,1,'2026-11-27T12:00:00.000Z')")
+    .bind(deviceId).run();
+  const create = JSON.parse(goldenCreate) as MutableMutation;
+  Object.assign(create, { deviceId, mutationId: `${mutationPrefix}_create`, deviceSequence: 1, entityId: taskId,
+    clientCreatedAt: "2026-11-27T12:00:00.000Z" });
+  Object.assign(create.payload.task, { id: taskId, title: "Synthetic historical progression", createdAt: "2026-11-20T12:00:00.000Z" });
+  const createRaw = JSON.stringify(create);
+  await applyTaskCreate(env.DB, parseTaskCreateMutation(createRaw, env.INSTANCE_ID), createRaw);
+
+  const completedAt = "2026-11-26T12:00:00.000Z";
+  const historical = { protocolVersion: 1, product: "tasks", instanceId: env.INSTANCE_ID, deviceId,
+    mutationId: `${mutationPrefix}_historical`, deviceSequence: 2, operation: "task.createHistoricalCompletion",
+    entityId: taskId, baseEntityVersion: 1, payload: { completedAt }, clientCreatedAt: "2026-11-27T12:00:01.000Z" };
+  const historicalRaw = JSON.stringify(historical);
+  await applyTaskCreate(env.DB, parseTaskHistoricalCompletionImportMutation(historicalRaw, env.INSTANCE_ID), historicalRaw);
+  const repeated = { ...historical, mutationId: `${mutationPrefix}_reimport`, deviceSequence: 3,
+    clientCreatedAt: "2026-11-27T12:00:02.000Z" };
+  const repeatedRaw = JSON.stringify(repeated);
+  await applyTaskCreate(env.DB, parseTaskHistoricalCompletionImportMutation(repeatedRaw, env.INSTANCE_ID), repeatedRaw);
+  return completedAt;
 }
 
 describe.sequential("task.reopen", () => {
@@ -334,6 +358,64 @@ describe.sequential("task.reopen", () => {
     const repeatedChange=(await repeatedFeed.json() as any).changes[0];
     const repeatedSnapshot=await bootstrap(env.DB,true) as {snapshot:{tasks:Array<{id:string;updatedAt:string}>}};
     expect(repeatedChange.payload.tasks[0].updatedAt).toBe(repeatedSnapshot.snapshot.tasks.find(task=>task.id===taskId)!.updatedAt);
+  });
+
+  it("does not consume the entity version on a same-timestamp historical reimport", async () => {
+    for (const action of ["edit", "reopen", "delete"] as const) {
+      const suffix = `${action}_${crypto.randomUUID()}`;
+      const deviceId = `device_historical_noop_${suffix}`;
+      const taskId = `local_historical_noop_${suffix}`;
+      const completedAt = await createHistoricallyCompletedTask(deviceId, taskId, suffix);
+      const template = action === "edit" ? goldenTitle : action === "reopen" ? goldenReopen : goldenDelete;
+      const mutation = JSON.parse(template) as MutableMutation;
+      Object.assign(mutation, { deviceId, mutationId: `${suffix}_after_reimport`, deviceSequence: 4, entityId: taskId,
+        baseEntityVersion: 2, clientCreatedAt: "2026-11-27T12:00:03.000Z" });
+      if (action === "edit") mutation.payload.title = "Edited after historical reimport";
+      if (action === "reopen") mutation.payload.reopenedAt = "2026-11-27T12:00:03.000Z";
+      if (action === "delete") mutation.payload.deletedAt = "2026-11-27T12:00:03.000Z";
+      const raw = JSON.stringify(mutation);
+      if (action === "edit")
+        await applyTaskOpenzaFieldsUpdate(env.DB, parseTaskUpdateTitleMutation(raw, env.INSTANCE_ID), raw);
+      else if (action === "reopen")
+        await applyTaskReopen(env.DB, parseTaskReopenMutation(raw, env.INSTANCE_ID), raw);
+      else
+        await applyTaskDelete(env.DB, parseTaskDeleteMutation(raw, env.INSTANCE_ID), raw);
+
+      const state = await env.DB.prepare("SELECT title,completion_state,completed_at,deleted_at,entity_version FROM tasks WHERE id=?1")
+        .bind(taskId).first<{ title: string; completion_state: string; completed_at: string | null; deleted_at: string | null; entity_version: number }>();
+      expect(state?.entity_version).toBe(3);
+      if (action === "edit") expect(state).toMatchObject({ title: "Edited after historical reimport", completion_state: "completed", completed_at: completedAt });
+      if (action === "reopen") expect(state).toMatchObject({ completion_state: "open", completed_at: null });
+      if (action === "delete") expect(state?.deleted_at).toBe("2026-11-27T12:00:03.000Z");
+    }
+  });
+
+  it("still rejects a same-timestamp historical reimport if a concurrent delete wins", async () => {
+    const suffix = crypto.randomUUID();
+    const deviceId = `device_historical_noop_delete_${suffix}`;
+    const taskId = `local_historical_noop_delete_${suffix}`;
+    const completedAt = await createHistoricallyCompletedTask(deviceId, taskId, `noop_delete_${suffix}`);
+    const deleteDeviceId = `device_historical_noop_delete_winner_${suffix}`;
+    await env.DB.prepare("INSERT INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at) VALUES(?1,'Synthetic concurrent delete','desktop',1,1,'2026-11-27T12:00:00.000Z')")
+      .bind(deleteDeviceId).run();
+    const deletion = JSON.parse(goldenDelete) as MutableMutation;
+    Object.assign(deletion, { deviceId: deleteDeviceId, mutationId: `noop_delete_winner_${suffix}`, deviceSequence: 1,
+      entityId: taskId, baseEntityVersion: 2, clientCreatedAt: "2026-11-27T12:00:03.000Z" });
+    deletion.payload.deletedAt = "2026-11-27T12:00:03.000Z";
+    const deleteRaw = JSON.stringify(deletion);
+    const mutation = { protocolVersion: 1, product: "tasks", instanceId: env.INSTANCE_ID, deviceId,
+      mutationId: `noop_delete_loser_${suffix}`, deviceSequence: 4, operation: "task.createHistoricalCompletion",
+      entityId: taskId, baseEntityVersion: 2, payload: { completedAt }, clientCreatedAt: "2026-11-27T12:00:03.000Z" };
+    const raw = JSON.stringify(mutation);
+    await expect(applyTaskCreate(env.DB, parseTaskHistoricalCompletionImportMutation(raw, env.INSTANCE_ID), raw, {
+      beforeHistoricalCompletionBatch: async () => {
+        await applyTaskDelete(env.DB, parseTaskDeleteMutation(deleteRaw, env.INSTANCE_ID), deleteRaw);
+      },
+    })).rejects.toMatchObject({ code: "entity_not_found" });
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM mutation_receipts WHERE mutation_id=?1").bind(mutation.mutationId).first())
+      .toEqual({ count: 0 });
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM mutation_receipts WHERE mutation_id=?1").bind(deletion.mutationId).first())
+      .toEqual({ count: 1 });
   });
 
   it("rejects historical completion when a concurrent task edit wins after the read", async () => {
