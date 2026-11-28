@@ -265,16 +265,24 @@ describe.sequential("task.reopen", () => {
     expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.reopened' AND entity_id=?1").bind(taskId).first()).toEqual({count:1});
     expect(await env.DB.prepare("SELECT count(*) AS count FROM external_commands WHERE task_id=?1").bind(taskId).first()).toEqual(commandCount);
 
+    const staleBaseOpen = {...alreadyOpen,mutationId:"mutation_provider_observed_stale_base_noop",deviceSequence:5,baseEntityVersion:1};
+    const staleBaseOpenRaw = JSON.stringify(staleBaseOpen);
+    const staleBaseOpenReceipt = await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(staleBaseOpenRaw,env.INSTANCE_ID),staleBaseOpenRaw);
+    expect(staleBaseOpenReceipt).toMatchObject({outcome:"accepted",entityVersion:accepted.entityVersion,changeSeq:accepted.changeSeq});
+    expect(await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(staleBaseOpenRaw,env.INSTANCE_ID),staleBaseOpenRaw))
+      .toMatchObject({outcome:"duplicate",entityVersion:accepted.entityVersion,changeSeq:accepted.changeSeq});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.reopened' AND entity_id=?1").bind(taskId).first()).toEqual({count:1});
+
     const laterComplete = JSON.parse(JSON.stringify(complete)) as MutableMutation;
-    Object.assign(laterComplete,{mutationId:"mutation_provider_observed_later_complete",deviceSequence:5,baseEntityVersion:alreadyOpenReceipt.entityVersion});
+    Object.assign(laterComplete,{mutationId:"mutation_provider_observed_later_complete",deviceSequence:6,baseEntityVersion:staleBaseOpenReceipt.entityVersion});
     laterComplete.payload.completedAt = "2026-11-27T12:00:05.000Z";
     const laterCompleteRaw = JSON.stringify(laterComplete);
     const laterCompleteReceipt = await applyTaskComplete(env.DB,parseTaskCompleteMutation(laterCompleteRaw,env.INSTANCE_ID),laterCompleteRaw);
-    const boundaryObservation = {...alreadyOpen,mutationId:"mutation_provider_observed_equal_boundary",deviceSequence:6,
+    const boundaryObservation = {...alreadyOpen,mutationId:"mutation_provider_observed_equal_boundary",deviceSequence:7,
       payload:{observedAt:"2026-11-27T12:00:05.000Z"}};
     const boundaryRaw = JSON.stringify(boundaryObservation);
     const boundaryReceipt = await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(boundaryRaw,env.INSTANCE_ID),boundaryRaw);
-    const delayedObservation = {...alreadyOpen,mutationId:"mutation_provider_observed_delayed",deviceSequence:7,
+    const delayedObservation = {...alreadyOpen,mutationId:"mutation_provider_observed_delayed",deviceSequence:8,
       payload:{observedAt:"2026-11-27T12:00:04.000Z"}};
     const delayedRaw = JSON.stringify(delayedObservation);
     const delayedReceipt = await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(delayedRaw,env.INSTANCE_ID),delayedRaw);
@@ -286,7 +294,7 @@ describe.sequential("task.reopen", () => {
       .toEqual({completion_state:"completed",completed_at:"2026-11-27T12:00:05.000Z"});
     expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.reopened' AND entity_id=?1").bind(taskId).first()).toEqual({count:1});
     expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.completed' AND entity_id=?1").bind(taskId).first()).toEqual({count:2});
-    expect(await env.DB.prepare("SELECT count(*) AS count FROM provider_observed_reopen_noop_receipts WHERE entity_id=?1").bind(taskId).first()).toEqual({count:3});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM provider_observed_reopen_noop_receipts WHERE entity_id=?1").bind(taskId).first()).toEqual({count:4});
     expect(await env.DB.prepare("SELECT entity_version FROM tasks WHERE id=?1").bind(taskId).first()).toEqual({entity_version:5});
     expect(await env.DB.prepare("SELECT count(*) AS count FROM external_commands WHERE task_id=?1 AND command='reopen'").bind(taskId).first())
       .toEqual({count:0});
