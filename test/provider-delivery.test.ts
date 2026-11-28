@@ -84,6 +84,14 @@ it("cancels a reserved exact-sequence delivery but refuses to cancel a started c
   expect(await env.DB.prepare("SELECT state FROM external_commands WHERE task_id=?1").bind(started.taskId).first()).toEqual({state:"pending_desktop"});
   expect(await env.DB.prepare("SELECT state FROM provider_delivery_claims WHERE claim_id=?1").bind(started.request.claimId).first()).toEqual({state:"started"});
 });
+it("returns command_busy as a definitive mutation rejection",async()=>{
+  const f=await fixture();await claimDelivery(env.DB,f.request);await startDelivery(env.DB,f.request.claimId,f.a);
+  const response=await post({...f.envelope,mutationId:`cancel.busy.${f.id}`,deviceSequence:3,
+    operation:"externalCommand.cancel",baseEntityVersion:null,
+    payload:{requestedChangeSeq:f.request.requestedChangeSeq,reason:"missing_source"}});
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({product:"tasks",error:{code:"command_busy",retryable:false}});
+});
 it("keeps a deleted started source locked against replacement aliases until its owned result",async()=>{
   const f=await fixture();await claimDelivery(env.DB,f.request);await startDelivery(env.DB,f.request.claimId,f.a);
   const other=await alias(f);

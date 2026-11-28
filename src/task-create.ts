@@ -97,7 +97,7 @@ export async function applyTaskCreate(
     ? db.prepare(`
         INSERT INTO changes(change_seq,protocol_version,product,mutation_id,operation,entity_kind,entity_id,entity_version,payload_json,server_accepted_at)
         SELECT next_change_seq+1,1,'tasks',?1,'workspace.changed','workspace',?2,1,
-          json_object('spaces',json('[]'),'projects',json('[]'),'tasks',json(${arraySql('tasks t', taskRecordJson(), 't.id=?5')}),
+          json_object('spaces',json('[]'),'projects',json('[]'),'tasks',json(${arraySql('tasks t', taskRecordJson('?4'), 't.id=?5')}),
             'scopes',json('[]'),'catalog',json('[]'),'intents',json('[]'),'routes',json('[]')),
           ?4 FROM cloud_state WHERE singleton=1
       `).bind(mutation.mutationId, mutation.entityId, 1, acceptedAt, mutation.entityId)
@@ -176,10 +176,12 @@ async function applyHistoricalCompletionUpdate(
   const version = current.completion_state === "open" ? current.entity_version + 1 : current.entity_version;
   const versionGuardId = `${mutation.mutationId}:historical-version`;
   const resultGuardId = `${mutation.mutationId}:historical-result`;
-  const payloadSql = `json_object('spaces',json('[]'),'projects',json('[]'),'tasks',json(${arraySql('tasks t', taskRecordJson(), 't.id=?6')}),'scopes',json('[]'),'catalog',json('[]'),'intents',json('[]'),'routes',json('[]'))`;
+  const payloadSql = `json_object('spaces',json('[]'),'projects',json('[]'),'tasks',json(${arraySql('tasks t', taskRecordJson('?4'), 't.id=?6')}),'scopes',json('[]'),'catalog',json('[]'),'intents',json('[]'),'routes',json('[]'))`;
   const statements: D1PreparedStatement[] = [
     db.prepare("INSERT INTO device_sequence_claims(device_id,device_sequence,mutation_id) VALUES(?1,?2,?3)")
       .bind(mutation.deviceId, mutation.deviceSequence, mutation.mutationId),
+    db.prepare("INSERT INTO entity_version_claims(entity_id,base_entity_version,mutation_id) VALUES(?1,?2,?3)")
+      .bind(mutation.entityId, current.entity_version, mutation.mutationId),
     db.prepare(`INSERT INTO workspace_guards(id,valid)
       SELECT ?1,CASE WHEN EXISTS(SELECT 1 FROM tasks WHERE id=?2 AND deleted_at IS NULL AND entity_version=?3
         AND ((completion_state='open' AND entity_version=?4) OR (completion_state='completed' AND completed_at=?5)))
@@ -216,8 +218,11 @@ async function applyHistoricalCompletionUpdate(
     if (receipt) return duplicateOrReuse(receipt, canonicalHash);
     const latest = await db.prepare("SELECT completion_state,completed_at,entity_version FROM tasks WHERE id=?1 AND deleted_at IS NULL")
       .bind(mutation.entityId).first<{ completion_state: string; completed_at: string | null; entity_version: number }>();
-    if (latest && (latest.entity_version !== current.entity_version || latest.completion_state !== current.completion_state ||
-        latest.completed_at !== current.completed_at))
+    if (!latest) throw new ContractError("entity_not_found", "The task does not exist.");
+    if (latest.entity_version !== current.entity_version || latest.completion_state !== current.completion_state ||
+        latest.completed_at !== current.completed_at)
+      throw new ContractError("version_conflict", "The task changed before its historical completion was imported.");
+    if (String(error).includes("entity_version_claims"))
       throw new ContractError("version_conflict", "The task changed before its historical completion was imported.");
     throw error;
   }

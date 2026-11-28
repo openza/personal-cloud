@@ -55,6 +55,7 @@ const statusByCode: Record<string, number> = {
   command_not_found: 404,
   source_identity_conflict: 409,
   command_superseded: 409,
+  command_busy: 409,
   delivery_busy: 409,
   stale_snapshot: 409,
   upgrade_required:409,

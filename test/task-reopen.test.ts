@@ -5,6 +5,7 @@ import {
   computeCanonicalHash,
   parseTaskCompleteMutation,
   parseTaskCreateMutation,
+  parseTaskDeleteMutation,
   parseTaskHistoricalCompletionImportMutation,
   parseExternalCommandCancelMutation,
   parseTaskReopenMutation,
@@ -15,6 +16,7 @@ import {
 } from "../src/protocol.ts";
 import { applyTaskComplete } from "../src/task-complete.ts";
 import { applyTaskCreate } from "../src/task-create.ts";
+import { applyTaskDelete } from "../src/task-delete.ts";
 import { applyTaskReopen } from "../src/task-reopen.ts";
 import { applyTaskProviderObservedReopen } from "../src/task-provider-observed-reopen.ts";
 import { applyExternalCommandCancel } from "../src/source-lifecycle.ts";
@@ -288,8 +290,10 @@ describe.sequential("task.reopen", () => {
     const pulled=await change.json() as any;
     expect(pulled.changes[0]).toMatchObject({operation:"workspace.changed",entityId:taskId,
       payload:{tasks:[{id:taskId,completionState:"completed",completedAt}]}});
-    const snapshot=await bootstrap(env.DB,true) as {snapshot:{tasks:Array<{id:string;completionState:string;completedAt:string|null}>;externalCommands:Array<{taskId:string;state:string}>}};
-    expect(snapshot.snapshot.tasks.find(task=>task.id===taskId)).toMatchObject({completionState:"completed",completedAt});
+    const snapshot=await bootstrap(env.DB,true) as {snapshot:{tasks:Array<{id:string;completionState:string;completedAt:string|null;updatedAt:string}>;externalCommands:Array<{taskId:string;state:string}>}};
+    const snapshotTask=snapshot.snapshot.tasks.find(task=>task.id===taskId)!;
+    expect(snapshotTask).toMatchObject({completionState:"completed",completedAt});
+    expect(pulled.changes[0].payload.tasks[0].updatedAt).toBe(snapshotTask.updatedAt);
     expect(snapshot.snapshot.externalCommands.find(command=>command.taskId===taskId)).toBeUndefined();
   });
 
@@ -314,10 +318,22 @@ describe.sequential("task.reopen", () => {
       .toEqual({completion_state:"completed",completed_at:completedAt,entity_version:2});
     expect(await env.DB.prepare("SELECT count(*) AS count FROM external_commands WHERE task_id=?1").bind(taskId).first()).toEqual({count:0});
     const feed=await exports.default.fetch(`https://personal-cloud.local/sync/changes?after=${receipt.changeSeq-1}&limit=1&workspace=1`);
-    expect((await feed.json() as any).changes[0]).toMatchObject({operation:"workspace.changed",entityId:taskId,
+    const pulled=await feed.json() as any;
+    expect(pulled.changes[0]).toMatchObject({operation:"workspace.changed",entityId:taskId,
       payload:{tasks:[{id:taskId,completionState:"completed",completedAt}]}});
-    const snapshot=await bootstrap(env.DB,true) as {snapshot:{tasks:Array<{id:string;completionState:string;completedAt:string|null}>}};
-    expect(snapshot.snapshot.tasks.find(task=>task.id===taskId)).toMatchObject({completionState:"completed",completedAt});
+    const snapshot=await bootstrap(env.DB,true) as {snapshot:{tasks:Array<{id:string;completionState:string;completedAt:string|null;updatedAt:string}>}};
+    const snapshotTask=snapshot.snapshot.tasks.find(task=>task.id===taskId)!;
+    expect(snapshotTask).toMatchObject({completionState:"completed",completedAt});
+    expect(pulled.changes[0].payload.tasks[0].updatedAt).toBe(snapshotTask.updatedAt);
+
+    const repeated={...mutation,mutationId:"mutation_historical_update_already_completed",deviceSequence:3,
+      clientCreatedAt:"2026-11-27T12:00:02.000Z"};
+    const repeatedRaw=JSON.stringify(repeated);
+    const repeatedReceipt=await applyTaskCreate(env.DB,parseTaskHistoricalCompletionImportMutation(repeatedRaw,env.INSTANCE_ID),repeatedRaw);
+    const repeatedFeed=await exports.default.fetch(`https://personal-cloud.local/sync/changes?after=${repeatedReceipt.changeSeq-1}&limit=1&workspace=1`);
+    const repeatedChange=(await repeatedFeed.json() as any).changes[0];
+    const repeatedSnapshot=await bootstrap(env.DB,true) as {snapshot:{tasks:Array<{id:string;updatedAt:string}>}};
+    expect(repeatedChange.payload.tasks[0].updatedAt).toBe(repeatedSnapshot.snapshot.tasks.find(task=>task.id===taskId)!.updatedAt);
   });
 
   it("rejects historical completion when a concurrent task edit wins after the read", async () => {
@@ -341,6 +357,37 @@ describe.sequential("task.reopen", () => {
     })).rejects.toMatchObject({code:"version_conflict"});
     expect(await env.DB.prepare("SELECT title,completion_state,entity_version FROM tasks WHERE id=?1").bind(taskId).first())
       .toEqual({title:"Synthetic concurrent edit",completion_state:"open",entity_version:2});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM mutation_receipts WHERE mutation_id=?1").bind(mutation.mutationId).first())
+      .toEqual({count:0});
+    expect(await env.DB.prepare("SELECT last_sequence FROM device_sequences WHERE device_id=?1").bind(deviceId).first())
+      .toEqual({last_sequence:1});
+  });
+
+  it("does not accept historical completion after a concurrent delete claims the prior version", async () => {
+    const deviceId=`device_historical_completion_delete_race_${crypto.randomUUID()}`;
+    const taskId=`local_historical_completion_delete_race_${deviceId}`;
+    await env.DB.prepare("INSERT INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at) VALUES(?1,'Synthetic history delete race','desktop',1,1,'2026-11-27T12:00:00.000Z')")
+      .bind(deviceId).run();
+    const create=JSON.parse(goldenCreate) as MutableMutation;
+    Object.assign(create,{deviceId,mutationId:`${deviceId}_create`,deviceSequence:1,entityId:taskId,clientCreatedAt:"2026-11-27T12:00:00.000Z"});
+    Object.assign(create.payload.task,{id:taskId,title:"Synthetic before concurrent delete",createdAt:"2026-11-20T12:00:00.000Z"});
+    const createRaw=JSON.stringify(create);
+    await applyTaskCreate(env.DB,parseTaskCreateMutation(createRaw,env.INSTANCE_ID),createRaw);
+    const mutation={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId,mutationId:`${deviceId}_complete`,
+      deviceSequence:2,operation:"task.createHistoricalCompletion",entityId:taskId,baseEntityVersion:1,
+      payload:{completedAt:"2026-11-26T12:00:00.000Z"},clientCreatedAt:"2026-11-27T12:00:01.000Z"};
+    const raw=JSON.stringify(mutation);
+    await expect(applyTaskCreate(env.DB,parseTaskHistoricalCompletionImportMutation(raw,env.INSTANCE_ID),raw,{
+      beforeHistoricalCompletionBatch:async()=>{
+        const deletion={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId:`${deviceId}_delete`,
+          mutationId:`${deviceId}_delete`,deviceSequence:1,operation:"task.delete",entityId:taskId,baseEntityVersion:1,
+          payload:{deletedAt:"2026-11-27T12:00:02.000Z"},clientCreatedAt:"2026-11-27T12:00:02.000Z"};
+        const deleteRaw=JSON.stringify(deletion);
+        await applyTaskDelete(env.DB,parseTaskDeleteMutation(deleteRaw,env.INSTANCE_ID),deleteRaw);
+      },
+    })).rejects.toMatchObject({code:"entity_not_found"});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE mutation_id=?1").bind(mutation.mutationId).first())
+      .toEqual({count:0});
     expect(await env.DB.prepare("SELECT count(*) AS count FROM mutation_receipts WHERE mutation_id=?1").bind(mutation.mutationId).first())
       .toEqual({count:0});
     expect(await env.DB.prepare("SELECT last_sequence FROM device_sequences WHERE device_id=?1").bind(deviceId).first())
@@ -379,9 +426,11 @@ describe.sequential("task.reopen", () => {
     expect(await env.DB.prepare("SELECT count(*) AS count FROM provider_delivery_claims WHERE task_id=?1").bind(taskId).first())
       .toEqual({count:0});
     const feed=await exports.default.fetch(`https://personal-cloud.local/sync/changes?after=${cancelled.changeSeq-1}&limit=1&workspace=1`);
-    expect((await feed.json() as any).changes[0]).toMatchObject({operation:"workspace.changed",entityId:taskId,
+    const pulled=(await feed.json() as any).changes[0];
+    expect(pulled).toMatchObject({operation:"workspace.changed",entityId:taskId,
       payload:{tasks:[{id:taskId,completionState:"completed"}]}});
-    const snapshot=await bootstrap(env.DB,true) as {snapshot:{externalCommands:Array<{taskId:string;state:string;requestedChangeSeq:number}>}};
+    const snapshot=await bootstrap(env.DB,true) as {snapshot:{tasks:Array<{id:string;updatedAt:string}>;externalCommands:Array<{taskId:string;state:string;requestedChangeSeq:number}>}};
+    expect(pulled.payload.tasks[0].updatedAt).toBe(snapshot.snapshot.tasks.find(task=>task.id===taskId)!.updatedAt);
     expect(snapshot.snapshot.externalCommands.find(command=>command.taskId===taskId)).toMatchObject({state:"cancelled",requestedChangeSeq:completion.changeSeq});
   });
 });

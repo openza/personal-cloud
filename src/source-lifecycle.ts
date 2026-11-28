@@ -193,7 +193,7 @@ export async function applyExternalCommandCancel(
       db.prepare(`INSERT INTO changes(change_seq,protocol_version,product,mutation_id,operation,entity_kind,
         entity_id,entity_version,payload_json,server_accepted_at)
         SELECT cs.next_change_seq+1,1,'tasks',?1,'workspace.changed','workspace',t.id,t.entity_version,
-          json_object('spaces',json('[]'),'projects',json('[]'),'tasks',json(${arraySql('tasks t', taskRecordJson(), 't.id=?5')}),
+          json_object('spaces',json('[]'),'projects',json('[]'),'tasks',json(${arraySql('tasks t', taskRecordJson('?3'), 't.id=?5')}),
             'scopes',json('[]'),'catalog',json('[]'),'intents',json('[]'),'routes',json('[]')) ,?3
         FROM cloud_state cs JOIN tasks t ON t.id=?2 JOIN external_commands c ON c.task_id=t.id
         WHERE cs.singleton=1 AND c.requested_change_seq=?4 AND c.state='cancelled'`)
