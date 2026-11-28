@@ -14,7 +14,8 @@ export type TaskCreatedChange = {
       id: string;
       spaceId: string;
       title: string;
-      completionState: "open";
+      completionState: "open" | "completed";
+      completedAt?: string | null;
       workflowStatus: "inbox";
       createdAt: string;
     };
@@ -175,7 +176,7 @@ export type TaskExternalCommandChanged = {
   protocolVersion: 1; product: "tasks"; changeSeq: number; mutationId: string;
   operation: "task.updatedOpenzaFields"; entityKind: "task"; entityId: string; entityVersion: number;
   payload: { task: { id: string; externalCommand: {
-    command: "complete" | "reopen"; state: "pending_desktop" | "confirmed" | "rejected"; errorCode: string | null;
+    command: "complete" | "reopen"; state: "pending_desktop" | "confirmed" | "rejected" | "cancelled"; errorCode: string | null;
     requestedChangeSeq?: number;
   } } }; serverAcceptedAt: string;
 };
@@ -422,7 +423,7 @@ function parseOpenzaFieldsUpdatePayload(
        (isExactObject(value.task.externalCommand, ["command", "errorCode", "requestedChangeSeq", "state"]) &&
         Number.isSafeInteger(value.task.externalCommand.requestedChangeSeq) && (value.task.externalCommand.requestedChangeSeq as number)>0)) &&
       (value.task.externalCommand.command === "complete" || value.task.externalCommand.command === "reopen") &&
-      (value.task.externalCommand.state === "confirmed" || value.task.externalCommand.state === "rejected" ||
+      (value.task.externalCommand.state === "confirmed" || value.task.externalCommand.state === "rejected" || value.task.externalCommand.state === "cancelled" ||
        (value.task.externalCommand.state === "pending_desktop" && "requestedChangeSeq" in value.task.externalCommand)) &&
       (value.task.externalCommand.errorCode === null || typeof value.task.externalCommand.errorCode === "string")) {
     return value as TaskExternalCommandChanged["payload"];

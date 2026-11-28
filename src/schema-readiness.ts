@@ -1,5 +1,5 @@
 import {throwDailyQuota} from "./daily-quota.ts";
-// Schema 26 readiness checks metadata and resolves required columns without reading rows.
+// Schema 28 readiness checks metadata and resolves required columns without reading rows.
 // This is a readiness contract, not a replacement for checksum migration preflight.
 const requiredColumns: Record<string, readonly string[]> = {
   auth_challenges: ["challenge_hash", "purpose", "credential_id", "expires_at", "consumed_at", "attempt_count", "created_at"],
@@ -22,6 +22,7 @@ const requiredColumns: Record<string, readonly string[]> = {
   web_pending_resolutions: ["mutation_id", "device_id", "device_sequence", "canonical_hash", "canonical_request", "cancelled_at"],
   labels: ["id", "name", "deleted_at"],
   mutation_receipts: ["mutation_id", "protocol_version", "product", "canonical_request", "canonical_hash", "entity_id", "entity_version", "change_seq", "server_accepted_at"],
+  provider_observed_reopen_noop_receipts: ["mutation_id", "canonical_hash", "entity_id", "entity_version", "change_seq", "server_accepted_at"],
   owner_bootstrap: ["singleton", "grant_hash", "expires_at", "consumed_at"],
   owner_credentials: ["credential_id", "display_name", "public_key_jwk", "sign_count", "created_at", "last_used_at", "revoked_at"],
   pairing_grants: ["grant_hash", "expires_at", "created_at", "consumed_at", "attempt_count"],
@@ -68,6 +69,11 @@ const requiredObjects = [
   ["trigger", "web_pending_not_applied", "web_pending_resolutions"],
   ["table", "labels", "labels"],
   ["table", "mutation_receipts", "mutation_receipts"],
+  ["table", "provider_observed_reopen_noop_receipts", "provider_observed_reopen_noop_receipts"],
+  ["trigger", "provider_observed_reopen_noop_receipts_immutable_update", "provider_observed_reopen_noop_receipts"],
+  ["trigger", "provider_observed_reopen_noop_receipts_immutable_delete", "provider_observed_reopen_noop_receipts"],
+  ["trigger", "provider_observed_reopen_noop_not_applied", "provider_observed_reopen_noop_receipts"],
+  ["trigger", "mutation_receipt_not_provider_observed_reopen_noop", "mutation_receipts"],
   ["table", "owner_bootstrap", "owner_bootstrap"],
   ["table", "owner_credentials", "owner_credentials"],
   ["table", "pairing_grants", "pairing_grants"],
@@ -89,6 +95,7 @@ const requiredObjects = [
   ["table", "workspace_guards", "workspace_guards"],
   ["index", "changes_by_entity_operation", "changes"],
   ["index", "changes_source_history_by_entity", "changes"],
+  ["index", "external_commands_cancelled_by_sequence", "external_commands"],
   ["index", "device_access_tokens_active_by_device", "device_access_tokens"],
   ["index", "entity_version_claims_mutation", "entity_version_claims"],
   ["index", "owner_credentials_single_active", "owner_credentials"],

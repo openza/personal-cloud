@@ -3,11 +3,11 @@ import { expect,it } from "vitest";
 import worker,{type Env} from "../src/index.ts";
 import { hash as tokenHash } from "../src/auth.ts";
 import { claimDelivery,startDelivery,reconcileDelivery,retryDelivery,parseDeliveryRequest } from "../src/provider-delivery.ts";
-import {parseExternalCommandResultMutation} from "../src/protocol.ts";
+import {parseExternalCommandCancelMutation,parseExternalCommandResultMutation} from "../src/protocol.ts";
 import claimFixture from "./fixtures/provider-delivery-claim-request.json?raw";
 import startFixture from "./fixtures/provider-delivery-start-request.json?raw";
 import confirmFixture from "./fixtures/valid-external-command-confirm.json?raw";
-import { applyExternalCommandResult } from "../src/source-lifecycle.ts";
+import { applyExternalCommandCancel,applyExternalCommandResult } from "../src/source-lifecycle.ts";
 const at="2026-10-11T06:00:00.000Z";
 it("shares explicit language-neutral claim/start/owned-result fixtures with Desktop",()=>{
   const instance="instance_00000000000000000000000000000001",device="device_00000000000000000000000000000001";
@@ -65,6 +65,32 @@ it("atomically stops an already reserved delivery if an alias appears before sta
   expect((await post({...other.create,deviceSequence:3,mutationId:`alias.delete.${f.id}`,operation:"task.delete",baseEntityVersion:2,payload:{deletedAt:at}})).status).toBe(201);
   const next={...f.request,claimId:`unambiguous.${f.id}`};expect((await claimDelivery(env.DB,next)).state).toBe("reserved");
   expect((await startDelivery(env.DB,next.claimId,f.a)).state).toBe("started");
+});
+it("cancels a reserved exact-sequence delivery but refuses to cancel a started claim",async()=>{
+  const cancelMutation=(f:Awaited<ReturnType<typeof fixture>>,suffix:string)=>({...f.envelope,
+    mutationId:`cancel.${suffix}.${f.id}`,deviceSequence:3,operation:"externalCommand.cancel",baseEntityVersion:null,
+    payload:{requestedChangeSeq:f.request.requestedChangeSeq,reason:"missing_source"}});
+  const reserved=await fixture();await claimDelivery(env.DB,reserved.request);
+  const reservedRaw=JSON.stringify(cancelMutation(reserved,"reserved"));
+  const receipt=await applyExternalCommandCancel(env.DB,parseExternalCommandCancelMutation(reservedRaw,env.INSTANCE_ID),reservedRaw);
+  expect(receipt.outcome).toBe("accepted");
+  expect(await env.DB.prepare("SELECT state FROM external_commands WHERE task_id=?1").bind(reserved.taskId).first()).toEqual({state:"cancelled"});
+  expect(await env.DB.prepare("SELECT state FROM provider_delivery_claims WHERE claim_id=?1").bind(reserved.request.claimId).first()).toEqual({state:"cancelled"});
+
+  const started=await fixture();await claimDelivery(env.DB,started.request);await startDelivery(env.DB,started.request.claimId,started.a);
+  const startedRaw=JSON.stringify(cancelMutation(started,"started"));
+  await expect(applyExternalCommandCancel(env.DB,parseExternalCommandCancelMutation(startedRaw,env.INSTANCE_ID),startedRaw))
+    .rejects.toMatchObject({code:"command_busy"});
+  expect(await env.DB.prepare("SELECT state FROM external_commands WHERE task_id=?1").bind(started.taskId).first()).toEqual({state:"pending_desktop"});
+  expect(await env.DB.prepare("SELECT state FROM provider_delivery_claims WHERE claim_id=?1").bind(started.request.claimId).first()).toEqual({state:"started"});
+});
+it("returns command_busy as a definitive mutation rejection",async()=>{
+  const f=await fixture();await claimDelivery(env.DB,f.request);await startDelivery(env.DB,f.request.claimId,f.a);
+  const response=await post({...f.envelope,mutationId:`cancel.busy.${f.id}`,deviceSequence:3,
+    operation:"externalCommand.cancel",baseEntityVersion:null,
+    payload:{requestedChangeSeq:f.request.requestedChangeSeq,reason:"missing_source"}});
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({product:"tasks",error:{code:"command_busy",retryable:false}});
 });
 it("keeps a deleted started source locked against replacement aliases until its owned result",async()=>{
   const f=await fixture();await claimDelivery(env.DB,f.request);await startDelivery(env.DB,f.request.claimId,f.a);

@@ -55,6 +55,7 @@ const statusByCode: Record<string, number> = {
   command_not_found: 404,
   source_identity_conflict: 409,
   command_superseded: 409,
+  command_busy: 409,
   delivery_busy: 409,
   stale_snapshot: 409,
   upgrade_required:409,
@@ -102,7 +103,7 @@ export default {
         if (url.search !== "") throw new ContractError("invalid_request", "Health does not accept query parameters.");
         if (!await schemaReady(env.DB)) throw new ContractError("schema_not_ready", "Personal Cloud is not ready. Retry after setup or update completes.");
         return noStoreJson({ status: "ok", protocolVersion: 1, product: "tasks", artifactVersion: env.ARTIFACT_VERSION,
-          schemaVersion: 26, capabilities: { mutationBatch: mutationBatchCapability, workspace:workspaceCapability,providerCatalog:providerCatalogCapability,workspacePaging:workspacePagingCapability,fanoutBudget:fanoutBudgetCapability,catchupStatus:catchupStatusCapability,desktopCompatibility:desktopCompatibilityCapability,webPendingRecovery:webPendingRecoveryCapability } });
+          schemaVersion: 28, capabilities: { mutationBatch: mutationBatchCapability, workspace:workspaceCapability,providerCatalog:providerCatalogCapability,workspacePaging:workspacePagingCapability,fanoutBudget:fanoutBudgetCapability,catchupStatus:catchupStatusCapability,providerObservedReopen:{protocolVersion:1},providerCommandCancellation:{protocolVersion:1},historicalCompletionImport:{protocolVersion:1},desktopCompatibility:desktopCompatibilityCapability,webPendingRecovery:webPendingRecoveryCapability } });
       }
       if (request.method === "GET" && url.pathname === "/auth/status") {
         return noStoreJson(await authStatus(env.DB));
