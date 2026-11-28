@@ -294,6 +294,130 @@ describe.sequential("task.reopen", () => {
       .toEqual(commandCount);
   });
 
+  it("reopens when an older completion arrives between the observation read and batch", async () => {
+    const deviceId = "device_provider_reopen_race_complete";
+    const taskId = "task_provider_reopen_race_complete";
+    await env.DB.prepare("INSERT INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at) VALUES(?1,'Synthetic reopen race','desktop',1,0,'2026-11-27T12:00:00.000Z')")
+      .bind(deviceId).run();
+    const create = JSON.parse(goldenCreate) as MutableMutation;
+    Object.assign(create,{deviceId,mutationId:"mutation_race_create",deviceSequence:1,entityId:taskId,clientCreatedAt:"2026-11-27T12:00:00.000Z"});
+    Object.assign(create.payload.task,{id:taskId,title:"Synthetic race task",createdAt:"2026-11-27T12:00:00.000Z"});
+    const createRaw=JSON.stringify(create);
+    const created=await applyTaskCreate(env.DB,parseTaskCreateMutation(createRaw,env.INSTANCE_ID),createRaw);
+    await env.DB.prepare(`CREATE TRIGGER provider_reopen_race_complete AFTER INSERT ON device_sequence_claims
+      WHEN NEW.mutation_id='mutation_race_reopen_after_complete'
+      BEGIN
+        UPDATE tasks SET completion_state='completed',completed_at='2026-11-27T12:00:01.000Z',entity_version=entity_version+1 WHERE id='task_provider_reopen_race_complete';
+      END`).run();
+    const mutation={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId,mutationId:"mutation_race_reopen_after_complete",deviceSequence:2,operation:"task.providerObservedReopen",entityId:taskId,baseEntityVersion:created.entityVersion,payload:{observedAt:"2026-11-27T12:00:02.000Z"},clientCreatedAt:"2026-11-27T12:00:02.000Z"};
+    const raw=JSON.stringify(mutation);
+    let receipt;
+    try {
+      receipt=await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(raw,env.INSTANCE_ID),raw);
+    } finally {
+      await env.DB.prepare("DROP TRIGGER provider_reopen_race_complete").run();
+    }
+    expect(receipt).toMatchObject({outcome:"accepted",entityVersion:3,changeSeq:created.changeSeq+1});
+    expect(await env.DB.prepare("SELECT completion_state,completed_at,entity_version FROM tasks WHERE id=?1").bind(taskId).first())
+      .toEqual({completion_state:"open",completed_at:null,entity_version:3});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.reopened' AND entity_id=?1").bind(taskId).first())
+      .toEqual({count:1});
+  });
+
+  it("records a receipt without another version or feed change when a reopen races the batch", async () => {
+    const deviceId = "device_provider_reopen_race_open";
+    const taskId = "task_provider_reopen_race_open";
+    await env.DB.prepare("INSERT INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at) VALUES(?1,'Synthetic reopen race','desktop',1,0,'2026-11-27T12:00:00.000Z')")
+      .bind(deviceId).run();
+    const create = JSON.parse(goldenCreate) as MutableMutation;
+    Object.assign(create,{deviceId,mutationId:"mutation_race_open_create",deviceSequence:1,entityId:taskId,clientCreatedAt:"2026-11-27T12:00:00.000Z"});
+    Object.assign(create.payload.task,{id:taskId,title:"Synthetic race task",createdAt:"2026-11-27T12:00:00.000Z"});
+    const createRaw=JSON.stringify(create);
+    const created=await applyTaskCreate(env.DB,parseTaskCreateMutation(createRaw,env.INSTANCE_ID),createRaw);
+    const complete=JSON.parse(goldenComplete) as MutableMutation;
+    Object.assign(complete,{deviceId,mutationId:"mutation_race_open_complete",deviceSequence:2,entityId:taskId,baseEntityVersion:created.entityVersion,clientCreatedAt:"2026-11-27T12:00:01.000Z"});
+    complete.payload.completedAt="2026-11-27T12:00:01.000Z";
+    const completeRaw=JSON.stringify(complete);
+    const completed=await applyTaskComplete(env.DB,parseTaskCompleteMutation(completeRaw,env.INSTANCE_ID),completeRaw);
+    await env.DB.prepare(`CREATE TRIGGER provider_reopen_race_open AFTER INSERT ON device_sequence_claims
+      WHEN NEW.mutation_id='mutation_race_reopen_after_open'
+      BEGIN
+        UPDATE tasks SET completion_state='open',completed_at=NULL,entity_version=entity_version+1 WHERE id='task_provider_reopen_race_open';
+      END`).run();
+    const mutation={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId,mutationId:"mutation_race_reopen_after_open",deviceSequence:3,operation:"task.providerObservedReopen",entityId:taskId,baseEntityVersion:completed.entityVersion,payload:{observedAt:"2026-11-27T12:00:02.000Z"},clientCreatedAt:"2026-11-27T12:00:02.000Z"};
+    const raw=JSON.stringify(mutation);
+    let receipt;
+    try {
+      receipt=await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(raw,env.INSTANCE_ID),raw);
+    } finally {
+      await env.DB.prepare("DROP TRIGGER provider_reopen_race_open").run();
+    }
+    expect(receipt).toMatchObject({outcome:"accepted",entityVersion:3,changeSeq:completed.changeSeq});
+    expect(await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(raw,env.INSTANCE_ID),raw))
+      .toMatchObject({outcome:"duplicate",entityVersion:3,changeSeq:completed.changeSeq});
+    expect(await env.DB.prepare("SELECT completion_state,completed_at,entity_version FROM tasks WHERE id=?1").bind(taskId).first())
+      .toEqual({completion_state:"open",completed_at:null,entity_version:3});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.reopened' AND entity_id=?1").bind(taskId).first())
+      .toEqual({count:0});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM provider_observed_reopen_noop_receipts WHERE mutation_id='mutation_race_reopen_after_open'").first())
+      .toEqual({count:1});
+  });
+
+  it("retries an eligible reopen after a current-version claim conflict", async () => {
+    const deviceId = "device_provider_reopen_claim_conflict";
+    const taskId = "task_provider_reopen_claim_conflict";
+    await env.DB.prepare("INSERT INTO devices(device_id,display_name,kind,can_sync,can_bridge_provider,created_at) VALUES(?1,'Synthetic claim conflict','desktop',1,0,'2026-11-27T12:00:00.000Z')")
+      .bind(deviceId).run();
+    const create = JSON.parse(goldenCreate) as MutableMutation;
+    Object.assign(create,{deviceId,mutationId:"mutation_claim_conflict_create",deviceSequence:1,entityId:taskId,clientCreatedAt:"2026-11-27T12:00:00.000Z"});
+    Object.assign(create.payload.task,{id:taskId,title:"Synthetic claim conflict",createdAt:"2026-11-27T12:00:00.000Z"});
+    const createRaw=JSON.stringify(create);
+    const created=await applyTaskCreate(env.DB,parseTaskCreateMutation(createRaw,env.INSTANCE_ID),createRaw);
+    const complete=JSON.parse(goldenComplete) as MutableMutation;
+    Object.assign(complete,{deviceId,mutationId:"mutation_claim_conflict_complete",deviceSequence:2,entityId:taskId,baseEntityVersion:created.entityVersion,clientCreatedAt:"2026-11-27T12:00:01.000Z"});
+    complete.payload.completedAt="2026-11-27T12:00:01.000Z";
+    const completeRaw=JSON.stringify(complete);
+    const completed=await applyTaskComplete(env.DB,parseTaskCompleteMutation(completeRaw,env.INSTANCE_ID),completeRaw);
+    await env.DB.prepare(`CREATE TRIGGER provider_reopen_claim_conflict AFTER INSERT ON device_sequence_claims
+      WHEN NEW.mutation_id='mutation_reopen_claim_conflict'
+      BEGIN
+        INSERT INTO entity_version_claims(entity_id,base_entity_version,mutation_id) VALUES('task_provider_reopen_claim_conflict',2,'mutation_existing_claim');
+      END`).run();
+    const mutation={protocolVersion:1,product:"tasks",instanceId:env.INSTANCE_ID,deviceId,mutationId:"mutation_reopen_claim_conflict",deviceSequence:3,operation:"task.providerObservedReopen",entityId:taskId,baseEntityVersion:completed.entityVersion,payload:{observedAt:"2026-11-27T12:00:02.000Z"},clientCreatedAt:"2026-11-27T12:00:02.000Z"};
+    const raw=JSON.stringify(mutation);
+    try {
+      await expect(applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(raw,env.INSTANCE_ID),raw))
+        .rejects.toThrow();
+    } finally {
+      await env.DB.prepare("DROP TRIGGER provider_reopen_claim_conflict").run();
+    }
+    expect(await env.DB.prepare("SELECT completion_state,completed_at,entity_version FROM tasks WHERE id=?1").bind(taskId).first())
+      .toEqual({completion_state:"completed",completed_at:"2026-11-27T12:00:01.000Z",entity_version:completed.entityVersion});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.reopened' AND entity_id=?1").bind(taskId).first())
+      .toEqual({count:0});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM mutation_receipts WHERE mutation_id='mutation_reopen_claim_conflict'").first())
+      .toEqual({count:0});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM provider_observed_reopen_noop_receipts WHERE mutation_id='mutation_reopen_claim_conflict'").first())
+      .toEqual({count:0});
+    expect(await env.DB.prepare("SELECT last_sequence FROM device_sequences WHERE device_id=?1").bind(deviceId).first())
+      .toEqual({last_sequence:2});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM device_sequence_claims WHERE mutation_id='mutation_reopen_claim_conflict'").first())
+      .toEqual({count:0});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM entity_version_claims WHERE mutation_id='mutation_existing_claim'").first())
+      .toEqual({count:0});
+
+    const receipt=await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(raw,env.INSTANCE_ID),raw);
+    expect(receipt).toMatchObject({outcome:"accepted",entityVersion:3,changeSeq:completed.changeSeq+1});
+    expect(await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(raw,env.INSTANCE_ID),raw))
+      .toMatchObject({outcome:"duplicate",entityVersion:3,changeSeq:completed.changeSeq+1});
+    expect(await env.DB.prepare("SELECT completion_state,completed_at,entity_version FROM tasks WHERE id=?1").bind(taskId).first())
+      .toEqual({completion_state:"open",completed_at:null,entity_version:3});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.reopened' AND entity_id=?1").bind(taskId).first())
+      .toEqual({count:1});
+    expect(await env.DB.prepare("SELECT last_sequence FROM device_sequences WHERE device_id=?1").bind(deviceId).first())
+      .toEqual({last_sequence:3});
+  });
+
   it("imports completed history without a live provider command", async () => {
     const deviceId = "device_historical_completion_import";
     const taskId = "local_historical_completion_import";
