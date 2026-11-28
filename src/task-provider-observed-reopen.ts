@@ -23,8 +23,9 @@ export async function applyTaskProviderObservedReopen(
     db.prepare(`INSERT INTO entity_version_claims(entity_id,base_entity_version,mutation_id)
       SELECT id,entity_version,?1 FROM tasks
       WHERE id=?2 AND deleted_at IS NULL AND completion_state='completed' AND completed_at<?3
-        AND EXISTS(SELECT 1 FROM device_sequence_claims WHERE mutation_id=?1)`)
-      .bind(mutation.mutationId,mutation.entityId,mutation.payload.observedAt),
+        AND EXISTS(SELECT 1 FROM device_sequence_claims
+          WHERE device_id=?4 AND device_sequence=?5 AND mutation_id=?1)`)
+      .bind(mutation.mutationId,mutation.entityId,mutation.payload.observedAt,mutation.deviceId,mutation.deviceSequence),
     db.prepare(`UPDATE tasks SET completion_state='open',completed_at=NULL,entity_version=entity_version+1
       WHERE id=?1 AND deleted_at IS NULL AND completion_state='completed' AND completed_at<?2
         AND EXISTS(SELECT 1 FROM entity_version_claims claim

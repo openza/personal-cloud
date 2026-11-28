@@ -324,6 +324,18 @@ describe.sequential("task.reopen", () => {
       .toEqual({count:1});
   });
 
+  it("uses an indexed device claim lookup", async () => {
+    const plan = await env.DB.prepare(`EXPLAIN QUERY PLAN
+      SELECT 1 FROM device_sequence_claims
+      WHERE device_id=?1 AND device_sequence=?2 AND mutation_id=?3`)
+      .bind("device_provider_reopen_plan",3,"mutation_provider_reopen_plan")
+      .all<{detail:string}>();
+    const details = plan.results.map(row => row.detail).join("\n");
+    expect(details).toMatch(/SEARCH device_sequence_claims USING (?:COVERING )?INDEX/);
+    expect(details).toContain("device_id=?");
+    expect(details).not.toContain("SCAN device_sequence_claims");
+  });
+
   it("records a receipt without another version or feed change when a reopen races the batch", async () => {
     const deviceId = "device_provider_reopen_race_open";
     const taskId = "task_provider_reopen_race_open";
