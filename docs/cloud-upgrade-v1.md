@@ -2,17 +2,17 @@
 
 This contract coordinates Personal Cloud and Tasks Desktop. It preserves protocol
 1, manifest format 1 and existing successful health fields/capabilities. Schema 27
-adds terminal provider-command cancellation and historical completion import, on
-top of schema 26 catch-up reporting and Web bulk safeguards. Only a matching new
-Desktop sends the schema-27 operations; schema-26 Desktop can continue reading
-the existing `workspace.changed` feed shape during a Cloud-first rollout.
+adds terminal provider-command cancellation and historical completion import; schema 28
+adds receipt-only provider-reopen no-ops, on top of schema 26 catch-up reporting and Web
+bulk safeguards. Only a matching new Desktop sends the schema-27 operations; schema-26
+Desktop can continue reading the existing `workspace.changed` feed shape during a Cloud-first rollout.
 
 ## Health and deployment
 
 `GET /health` returns the existing success response only after a bounded read-only
 probe resolves every required table/column and finds the required named indexes
-and triggers, including schema 24 paging, schema 25 modification-time objects and
-schema 26 catch-up/allowance tables and the schema 27 cancelled-command index/state.
+and triggers, including schema 24 paging, schema 25 modification-time objects,
+schema 26 catch-up/allowance tables, schema 27 cancelled-command state and schema 28 no-op receipts.
 The probe reads schema metadata and compiles zero-row column queries; it does not
 scan tasks, receipts or history. An incomplete, empty or unavailable D1 binding
 returns HTTP 503, `Cache-Control: no-store` and a generic `schema_not_ready` error.
@@ -36,8 +36,9 @@ legacy path when that path is safe for the prior negotiation.
 
 Existing users start the supported **Personal Cloud → Manage → Update** flow
 after backup and readiness checks. The workflow applies only the outstanding
-migrations in numeric order. A Cloud already at schema 26 applies 0027, not 0026
-again. Confirm `/health` reports schema 27 and the cancellation/import capabilities,
+migrations in numeric order. A Cloud at schema 26 applies 0027 then 0028; a Cloud
+at schema 27 applies 0028 only. Never reapply 0026 manually. Confirm `/health` reports
+schema 28 and the cancellation/import capabilities,
 then update Desktop. Cloud-first is supported: older Desktop does not send either
 new mutation and receives only the existing `workspace.changed` change shape. A
 new Desktop against an older Cloud defers these operations until a later successful

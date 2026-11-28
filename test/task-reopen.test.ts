@@ -259,28 +259,35 @@ describe.sequential("task.reopen", () => {
     const alreadyOpen = {...mutation,mutationId:"mutation_provider_observed_already_open",deviceSequence:4,baseEntityVersion:accepted.entityVersion};
     const alreadyOpenRaw = JSON.stringify(alreadyOpen);
     const alreadyOpenReceipt = await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(alreadyOpenRaw,env.INSTANCE_ID),alreadyOpenRaw);
-    expect(alreadyOpenReceipt).toMatchObject({outcome:"accepted",entityVersion:accepted.entityVersion+1,changeSeq:accepted.changeSeq+1});
-    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.reopened' AND entity_id=?1").bind(taskId).first()).toEqual({count:2});
+    expect(alreadyOpenReceipt).toMatchObject({outcome:"accepted",entityVersion:accepted.entityVersion,changeSeq:accepted.changeSeq});
+    expect(await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(alreadyOpenRaw,env.INSTANCE_ID),alreadyOpenRaw))
+      .toMatchObject({outcome:"duplicate",entityVersion:accepted.entityVersion,changeSeq:accepted.changeSeq});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.reopened' AND entity_id=?1").bind(taskId).first()).toEqual({count:1});
     expect(await env.DB.prepare("SELECT count(*) AS count FROM external_commands WHERE task_id=?1").bind(taskId).first()).toEqual(commandCount);
 
     const laterComplete = JSON.parse(JSON.stringify(complete)) as MutableMutation;
     Object.assign(laterComplete,{mutationId:"mutation_provider_observed_later_complete",deviceSequence:5,baseEntityVersion:alreadyOpenReceipt.entityVersion});
     laterComplete.payload.completedAt = "2026-11-27T12:00:05.000Z";
     const laterCompleteRaw = JSON.stringify(laterComplete);
-    await applyTaskComplete(env.DB,parseTaskCompleteMutation(laterCompleteRaw,env.INSTANCE_ID),laterCompleteRaw);
+    const laterCompleteReceipt = await applyTaskComplete(env.DB,parseTaskCompleteMutation(laterCompleteRaw,env.INSTANCE_ID),laterCompleteRaw);
     const boundaryObservation = {...alreadyOpen,mutationId:"mutation_provider_observed_equal_boundary",deviceSequence:6,
       payload:{observedAt:"2026-11-27T12:00:05.000Z"}};
     const boundaryRaw = JSON.stringify(boundaryObservation);
-    await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(boundaryRaw,env.INSTANCE_ID),boundaryRaw);
+    const boundaryReceipt = await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(boundaryRaw,env.INSTANCE_ID),boundaryRaw);
     const delayedObservation = {...alreadyOpen,mutationId:"mutation_provider_observed_delayed",deviceSequence:7,
       payload:{observedAt:"2026-11-27T12:00:04.000Z"}};
     const delayedRaw = JSON.stringify(delayedObservation);
-    await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(delayedRaw,env.INSTANCE_ID),delayedRaw);
+    const delayedReceipt = await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(delayedRaw,env.INSTANCE_ID),delayedRaw);
+    expect(boundaryReceipt).toMatchObject({outcome:"accepted",entityVersion:laterCompleteReceipt.entityVersion,changeSeq:laterCompleteReceipt.changeSeq});
+    expect(delayedReceipt).toMatchObject({outcome:"accepted",entityVersion:laterCompleteReceipt.entityVersion,changeSeq:laterCompleteReceipt.changeSeq});
+    expect(await applyTaskProviderObservedReopen(env.DB,parseTaskProviderObservedReopenMutation(boundaryRaw,env.INSTANCE_ID),boundaryRaw))
+      .toMatchObject({outcome:"duplicate",entityVersion:laterCompleteReceipt.entityVersion,changeSeq:laterCompleteReceipt.changeSeq});
     expect(await env.DB.prepare("SELECT completion_state,completed_at FROM tasks WHERE id=?1").bind(taskId).first())
       .toEqual({completion_state:"completed",completed_at:"2026-11-27T12:00:05.000Z"});
-    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.reopened' AND entity_id=?1").bind(taskId).first()).toEqual({count:2});
-    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.completed' AND entity_id=?1").bind(taskId).first()).toEqual({count:4});
-    expect(await env.DB.prepare("SELECT entity_version FROM tasks WHERE id=?1").bind(taskId).first()).toEqual({entity_version:8});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.reopened' AND entity_id=?1").bind(taskId).first()).toEqual({count:1});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM changes WHERE operation='task.completed' AND entity_id=?1").bind(taskId).first()).toEqual({count:2});
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM provider_observed_reopen_noop_receipts WHERE entity_id=?1").bind(taskId).first()).toEqual({count:3});
+    expect(await env.DB.prepare("SELECT entity_version FROM tasks WHERE id=?1").bind(taskId).first()).toEqual({entity_version:5});
     expect(await env.DB.prepare("SELECT count(*) AS count FROM external_commands WHERE task_id=?1 AND command='reopen'").bind(taskId).first())
       .toEqual({count:0});
     expect(await env.DB.prepare("SELECT count(*) AS count FROM external_commands WHERE task_id=?1").bind(taskId).first())

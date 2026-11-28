@@ -24,6 +24,10 @@ export async function findReceipt(db: D1Database, mutationId: string): Promise<R
   return db.prepare(`
     SELECT canonical_hash, mutation_id, entity_id, entity_version, change_seq, server_accepted_at
     FROM mutation_receipts WHERE mutation_id = ?1
+    UNION ALL
+    SELECT canonical_hash, mutation_id, entity_id, entity_version, change_seq, server_accepted_at
+    FROM provider_observed_reopen_noop_receipts WHERE mutation_id = ?1
+    LIMIT 1
   `).bind(mutationId).first<ReceiptRow>();
 }
 
